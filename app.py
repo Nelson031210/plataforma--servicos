@@ -8,7 +8,6 @@ from sqlalchemy import inspect, or_, text
 app = Flask(__name__)
 
 database_url = os.getenv("DATABASE_URL", "sqlite:///plataforma.db")
-# Compatibilidade com URLs antigas no formato postgres://
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
@@ -52,23 +51,23 @@ class Pedido(db.Model):
 
 
 def atualizar_estrutura_banco():
-    """Cria as tabelas e acrescenta colunas novas sem apagar dados existentes."""
     db.create_all()
-
     with db.engine.begin() as conexao:
         for tabela in ("prestador", "pedido"):
-            colunas = {
-                coluna["name"]
-                for coluna in inspect(conexao).get_columns(tabela)
-            }
+            colunas = {coluna["name"] for coluna in inspect(conexao).get_columns(tabela)}
             if "uf" not in colunas:
-                conexao.execute(
-                    text(f"ALTER TABLE {tabela} ADD COLUMN uf VARCHAR(2)")
-                )
+                conexao.execute(text(f"ALTER TABLE {tabela} ADD COLUMN uf VARCHAR(2)"))
 
 
 with app.app_context():
     atualizar_estrutura_banco()
+
+
+def whatsapp_url(telefone):
+    numeros = "".join(ch for ch in (telefone or "") if ch.isdigit())
+    if len(numeros) in (10, 11):
+        numeros = "55" + numeros
+    return f"https://wa.me/{numeros}" if numeros else None
 
 
 BASE = """
@@ -77,23 +76,25 @@ BASE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title }} | Conecta Serviços</title>
+  <title>{{ title }} | Conecta ServiÃ§os</title>
   <style>
-    :root{--bg:#f5f7fb;--card:#fff;--text:#1e293b;--muted:#64748b;--brand:#2563eb;--brand2:#1d4ed8;--border:#e2e8f0;--ok:#15803d;--danger:#b91c1c}
+    :root{--bg:#f5f7fb;--card:#fff;--text:#1e293b;--muted:#64748b;--brand:#2563eb;--brand2:#1d4ed8;--border:#e2e8f0;--ok:#15803d;--danger:#b91c1c;--whatsapp:#16a34a;--whatsapp2:#15803d}
     *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
     .wrap{max-width:980px;margin:auto;padding:20px}.nav{background:#0f172a;color:#fff}.nav .wrap{display:flex;gap:16px;align-items:center;justify-content:space-between;padding-top:14px;padding-bottom:14px}
     .brand{font-weight:800;font-size:20px}.nav a{color:#fff;text-decoration:none;margin-left:14px}.hero{padding:48px 0 28px}.hero h1{font-size:clamp(34px,7vw,58px);line-height:1.03;margin:0 0 14px}.hero p{font-size:19px;color:var(--muted);max-width:760px}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 6px 20px rgba(15,23,42,.05)}
-    .btn{display:inline-block;background:var(--brand);color:#fff!important;text-decoration:none;border:0;border-radius:10px;padding:11px 16px;font-weight:700;cursor:pointer}.btn:hover{background:var(--brand2)}.btn.secondary{background:#334155}.btn.danger{background:var(--danger)}
+    .btn{display:inline-block;background:var(--brand);color:#fff!important;text-decoration:none;border:0;border-radius:10px;padding:11px 16px;font-weight:700;cursor:pointer}.btn:hover{background:var(--brand2)}.btn.secondary{background:#334155}.btn.danger{background:var(--danger)}.btn.whatsapp{background:var(--whatsapp)}.btn.whatsapp:hover{background:var(--whatsapp2)}
     label{display:block;font-weight:700;margin:14px 0 6px}input,textarea,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;background:white}textarea{min-height:120px}
     .muted{color:var(--muted)}.flash{padding:12px 14px;border-radius:10px;background:#dcfce7;color:#166534;margin:12px 0}.bad{background:#fee2e2;color:#991b1b}.tag{display:inline-block;padding:4px 9px;border-radius:999px;background:#e0e7ff;color:#3730a3;font-size:13px}
     .item{padding:15px 0;border-bottom:1px solid var(--border)}.item:last-child{border-bottom:0}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.topgap{margin-top:22px}
-    footer{padding:38px 0;color:var(--muted);text-align:center}.search{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end}.search label{margin-top:0}.search-actions{display:flex;gap:8px}.result-summary{margin:14px 0 0}@media(max-width:820px){.search{grid-template-columns:1fr}.search-actions .btn{flex:1;text-align:center}.nav .wrap{align-items:flex-start}.navlinks{font-size:14px}}
+    .profile-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;flex-wrap:wrap}.profile-head h1{margin-bottom:8px}.profile-description{white-space:pre-line;line-height:1.6}
+    footer{padding:38px 0;color:var(--muted);text-align:center}.search{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end}.search label{margin-top:0}.search-actions{display:flex;gap:8px}.result-summary{margin:14px 0 0}
+    @media(max-width:820px){.search{grid-template-columns:1fr}.search-actions .btn{flex:1;text-align:center}.nav .wrap{align-items:flex-start}.navlinks{font-size:14px}.profile-head{display:block}}
   </style>
 </head>
 <body>
-<nav class="nav"><div class="wrap"><div class="brand">Conecta Serviços</div><div class="navlinks">
-<a href="{{ url_for('home') }}">Início</a><a href="{{ url_for('prestadores') }}">Prestadores</a><a href="{{ url_for('quero_servico') }}">Pedir serviço</a><a href="{{ url_for('sou_prestador') }}">Sou prestador</a>
+<nav class="nav"><div class="wrap"><div class="brand">Conecta ServiÃ§os</div><div class="navlinks">
+<a href="{{ url_for('home') }}">InÃ­cio</a><a href="{{ url_for('prestadores') }}">Prestadores</a><a href="{{ url_for('quero_servico') }}">Pedir serviÃ§o</a><a href="{{ url_for('sou_prestador') }}">Sou prestador</a>
 </div></div></nav>
 <main class="wrap">
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -101,7 +102,7 @@ BASE = """
 {% endwith %}
 {{ body|safe }}
 </main>
-<footer><div class="wrap">Conecta Serviços • Plataforma para aproximar clientes e profissionais</div></footer>
+<footer><div class="wrap">Conecta ServiÃ§os â€¢ Plataforma para aproximar clientes e profissionais</div></footer>
 </body></html>
 """
 
@@ -116,17 +117,17 @@ def home():
     body = """
     <section class="hero">
       <span class="tag">Encontre quem faz</span>
-      <h1>Serviços locais, sem complicação.</h1>
-      <p>Clientes publicam o que precisam. Profissionais se cadastram para serem encontrados na sua região.</p>
-      <div class="actions"><a class="btn" href="{{ url_for('prestadores') }}">Buscar prestadores</a><a class="btn secondary" href="{{ url_for('quero_servico') }}">Pedir um serviço</a><a class="btn secondary" href="{{ url_for('sou_prestador') }}">Quero prestar serviços</a></div>
+      <h1>ServiÃ§os locais, sem complicaÃ§Ã£o.</h1>
+      <p>Clientes publicam o que precisam. Profissionais se cadastram para serem encontrados na sua regiÃ£o.</p>
+      <div class="actions"><a class="btn" href="{{ url_for('prestadores') }}">Buscar prestadores</a><a class="btn secondary" href="{{ url_for('quero_servico') }}">Pedir um serviÃ§o</a><a class="btn secondary" href="{{ url_for('sou_prestador') }}">Quero prestar serviÃ§os</a></div>
     </section>
     <section class="grid">
-      <div class="card"><h2>Para clientes</h2><p class="muted">Descreva o serviço, informe sua cidade e deixe seus dados para contato.</p></div>
-      <div class="card"><h2>Para profissionais</h2><p class="muted">Cadastre sua especialidade e apareça na busca depois da aprovação.</p></div>
-      <div class="card"><h2>Administração simples</h2><p class="muted">Painel protegido para aprovar prestadores e acompanhar solicitações.</p></div>
+      <div class="card"><h2>Para clientes</h2><p class="muted">Descreva o serviÃ§o, informe sua cidade e deixe seus dados para contato.</p></div>
+      <div class="card"><h2>Para profissionais</h2><p class="muted">Cadastre sua especialidade e apareÃ§a na busca depois da aprovaÃ§Ã£o.</p></div>
+      <div class="card"><h2>AdministraÃ§Ã£o simples</h2><p class="muted">Painel protegido para aprovar prestadores e acompanhar solicitaÃ§Ãµes.</p></div>
     </section>
     """
-    return page("Início", body)
+    return page("InÃ­cio", body)
 
 
 @app.route("/prestadores")
@@ -145,22 +146,18 @@ def prestadores():
         ))
 
     if cidade:
-        query = query.filter(
-            Prestador.cidade.ilike(f"%{cidade}%")
-        )
+        query = query.filter(Prestador.cidade.ilike(f"%{cidade}%"))
 
     if uf in UFS:
         query = query.filter(Prestador.uf.ilike(uf))
 
-    itens = query.order_by(
-        Prestador.criado_em.desc()
-    ).all()
+    itens = query.order_by(Prestador.criado_em.desc()).all()
 
     body = """
     <h1>Encontre um prestador</h1>
-    <p class="muted">Pesquise o serviço de que precisa e informe o estado e a cidade onde será realizado.</p>
+    <p class="muted">Pesquise o serviÃ§o de que precisa e informe o estado e a cidade onde serÃ¡ realizado.</p>
     <form class="search card" method="get">
-      <div><label for="servico">Serviço ou categoria</label><input id="servico" name="servico" value="{{ servico }}" placeholder="Ex.: eletricista, pintura"></div>
+      <div><label for="servico">ServiÃ§o ou categoria</label><input id="servico" name="servico" value="{{ servico }}" placeholder="Ex.: eletricista, pintura"></div>
       <div><label for="uf">Estado (UF)</label><select id="uf" name="uf"><option value="">Todos os estados</option>{% for sigla in ufs %}<option value="{{ sigla }}" {% if uf == sigla %}selected{% endif %}>{{ sigla }}</option>{% endfor %}</select></div>
       <div><label for="cidade">Cidade</label><input id="cidade" name="cidade" value="{{ cidade }}" placeholder="Ex.: Londrina"></div>
       <div class="search-actions"><button class="btn" type="submit">Buscar</button>{% if servico or uf or cidade %}<a class="btn secondary" href="{{ url_for('prestadores') }}">Limpar</a>{% endif %}</div>
@@ -168,130 +165,104 @@ def prestadores():
     {% if servico or uf or cidade %}<p class="muted result-summary">{{ itens|length }} prestador{% if itens|length != 1 %}es{% endif %} encontrado{% if itens|length != 1 %}s{% endif %}.</p>{% endif %}
     <div class="card topgap">
     {% if itens %}
-      {% for p in itens %}<div class="item"><h3>{{ p.nome }}</h3><div><span class="tag">{{ p.categoria }}</span> <span class="muted">{{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}</span></div><p>{{ p.descricao }}</p><strong>Contato:</strong> {{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</div>{% endfor %}
-    {% else %}<p class="muted">Nenhum prestador encontrado com esses filtros. Tente outro serviço ou uma cidade próxima.</p>{% endif %}
+      {% for p in itens %}
+      <div class="item">
+        <h3>{{ p.nome }}</h3>
+        <div><span class="tag">{{ p.categoria }}</span> <span class="muted">{{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}</span></div>
+        <p>{{ p.descricao }}</p>
+        <div class="actions">
+          <a class="btn secondary" href="{{ url_for('perfil_prestador', pid=p.id) }}">Ver perfil</a>
+          {% set wpp = whatsapp_url(p.telefone) %}
+          {% if wpp %}<a class="btn whatsapp" href="{{ wpp }}" target="_blank" rel="noopener noreferrer">WhatsApp</a>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}<p class="muted">Nenhum prestador encontrado com esses filtros. Tente outro serviÃ§o ou uma cidade prÃ³xima.</p>{% endif %}
     </div>
     """
 
-    return page(
-        "Prestadores",
-        body,
-        itens=itens,
-        servico=servico,
-        uf=uf,
-        cidade=cidade,
-        ufs=UFS
-    )
+    return page("Prestadores", body, itens=itens, servico=servico, uf=uf, cidade=cidade, ufs=UFS, whatsapp_url=whatsapp_url)
+
+
+@app.get("/prestador/<int:pid>")
+def perfil_prestador(pid):
+    p = db.get_or_404(Prestador, pid)
+    if not p.aprovado:
+        abort(404)
+
+    body = """
+    <div class="card">
+      <div class="profile-head">
+        <div>
+          <span class="tag">{{ p.categoria }}</span>
+          <h1>{{ p.nome }}</h1>
+          <p class="muted">{{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}</p>
+        </div>
+      </div>
+      <h2>Sobre os serviÃ§os</h2>
+      <p class="profile-description">{{ p.descricao }}</p>
+      <h2>Contato</h2>
+      <p><strong>Telefone/WhatsApp:</strong> {{ p.telefone }}</p>
+      {% if p.email %}<p><strong>E-mail:</strong> {{ p.email }}</p>{% endif %}
+      <div class="actions">
+        {% set wpp = whatsapp_url(p.telefone) %}
+        {% if wpp %}<a class="btn whatsapp" href="{{ wpp }}" target="_blank" rel="noopener noreferrer">Conversar no WhatsApp</a>{% endif %}
+        <a class="btn secondary" href="{{ url_for('prestadores') }}">Voltar para prestadores</a>
+      </div>
+    </div>
+    """
+    return page(p.nome, body, p=p, whatsapp_url=whatsapp_url)
 
 
 @app.route("/quero-servico", methods=["GET", "POST"])
 def quero_servico():
     if request.method == "POST":
-        dados = {
-            k: (request.form.get(k) or "").strip()
-            for k in [
-                "nome",
-                "cidade",
-                "uf",
-                "telefone",
-                "email",
-                "servico",
-                "descricao"
-            ]
-        }
-
-        obrig = [
-            "nome",
-            "cidade",
-            "uf",
-            "telefone",
-            "servico",
-            "descricao"
-        ]
-
+        dados = {k: (request.form.get(k) or "").strip() for k in ["nome", "cidade", "uf", "telefone", "email", "servico", "descricao"]}
+        obrig = ["nome", "cidade", "uf", "telefone", "servico", "descricao"]
         dados["uf"] = dados["uf"].upper()
 
         if any(not dados[k] for k in obrig):
-            flash(
-                "Preencha todos os campos obrigatórios.",
-                "error"
-            )
+            flash("Preencha todos os campos obrigatÃ³rios.", "error")
         elif dados["uf"] not in UFS:
-            flash("Selecione um Estado (UF) válido.", "error")
+            flash("Selecione um Estado (UF) vÃ¡lido.", "error")
         else:
             db.session.add(Pedido(**dados))
             db.session.commit()
-
-            flash(
-                "Pedido enviado com sucesso! Entraremos em contato quando houver um profissional compatível."
-            )
-
-            return redirect(
-                url_for("quero_servico")
-            )
+            flash("Pedido enviado com sucesso! Entraremos em contato quando houver um profissional compatÃ­vel.")
+            return redirect(url_for("quero_servico"))
 
     body = """
-    <h1>Preciso de um serviço</h1><div class="card">
+    <h1>Preciso de um serviÃ§o</h1><div class="card">
     <form method="post">
       <label>Seu nome *</label><input name="nome" required>
       <label>Estado (UF) *</label><select name="uf" required><option value="">Selecione</option>{% for sigla in ufs %}<option value="{{ sigla }}">{{ sigla }}</option>{% endfor %}</select>
       <label>Cidade *</label><input name="cidade" required>
       <label>Telefone/WhatsApp *</label><input name="telefone" required>
       <label>E-mail</label><input type="email" name="email">
-      <label>Qual serviço precisa? *</label><input name="servico" placeholder="Ex.: eletricista, jardinagem, pintura" required>
+      <label>Qual serviÃ§o precisa? *</label><input name="servico" placeholder="Ex.: eletricista, jardinagem, pintura" required>
       <label>Descreva o que precisa *</label><textarea name="descricao" required></textarea>
       <div class="topgap"><button class="btn">Enviar pedido</button></div>
     </form></div>
     """
-
-    return page("Pedir serviço", body, ufs=UFS)
+    return page("Pedir serviÃ§o", body, ufs=UFS)
 
 
 @app.route("/sou-prestador", methods=["GET", "POST"])
 def sou_prestador():
     if request.method == "POST":
-        dados = {
-            k: (request.form.get(k) or "").strip()
-            for k in [
-                "nome",
-                "cidade",
-                "uf",
-                "telefone",
-                "email",
-                "categoria",
-                "descricao"
-            ]
-        }
-
-        obrig = [
-            "nome",
-            "cidade",
-            "uf",
-            "telefone",
-            "categoria",
-            "descricao"
-        ]
-
+        dados = {k: (request.form.get(k) or "").strip() for k in ["nome", "cidade", "uf", "telefone", "email", "categoria", "descricao"]}
+        obrig = ["nome", "cidade", "uf", "telefone", "categoria", "descricao"]
         dados["uf"] = dados["uf"].upper()
 
         if any(not dados[k] for k in obrig):
-            flash(
-                "Preencha todos os campos obrigatórios.",
-                "error"
-            )
+            flash("Preencha todos os campos obrigatÃ³rios.", "error")
         elif dados["uf"] not in UFS:
-            flash("Selecione um Estado (UF) válido.", "error")
+            flash("Selecione um Estado (UF) vÃ¡lido.", "error")
         else:
             db.session.add(Prestador(**dados))
             db.session.commit()
-
-            flash(
-                "Cadastro recebido! Ele ficará visível após aprovação."
-            )
-
-            return redirect(
-                url_for("sou_prestador")
-            )
+            flash("Cadastro recebido! Ele ficarÃ¡ visÃ­vel apÃ³s aprovaÃ§Ã£o.")
+            return redirect(url_for("sou_prestador"))
 
     body = """
     <h1>Cadastro de prestador</h1><div class="card">
@@ -302,11 +273,10 @@ def sou_prestador():
       <label>Telefone/WhatsApp *</label><input name="telefone" required>
       <label>E-mail</label><input type="email" name="email">
       <label>Categoria *</label><input name="categoria" placeholder="Ex.: encanador, pintor, jardinagem" required>
-      <label>Apresente seus serviços *</label><textarea name="descricao" required></textarea>
+      <label>Apresente seus serviÃ§os *</label><textarea name="descricao" required></textarea>
       <div class="topgap"><button class="btn">Cadastrar</button></div>
     </form></div>
     """
-
     return page("Sou prestador", body, ufs=UFS)
 
 
@@ -319,19 +289,16 @@ def admin_login():
     if request.method == "POST":
         senha = request.form.get("senha", "")
         correta = os.getenv("ADMIN_PASSWORD", "")
-
         if correta and hmac.compare_digest(senha, correta):
             session["admin"] = True
             return redirect(url_for("admin"))
-
-        flash("Senha inválida.", "error")
+        flash("Senha invÃ¡lida.", "error")
 
     body = """
-    <h1>Administração</h1><div class="card"><form method="post">
+    <h1>AdministraÃ§Ã£o</h1><div class="card"><form method="post">
     <label>Senha administrativa</label><input type="password" name="senha" required>
     <div class="topgap"><button class="btn">Entrar</button></div></form></div>
     """
-
     return page("Login", body)
 
 
@@ -346,43 +313,30 @@ def admin():
     if not admin_ok():
         return redirect(url_for("admin_login"))
 
-    prest = Prestador.query.order_by(
-        Prestador.criado_em.desc()
-    ).all()
-
-    ped = Pedido.query.order_by(
-        Pedido.criado_em.desc()
-    ).all()
+    prest = Prestador.query.order_by(Prestador.criado_em.desc()).all()
+    ped = Pedido.query.order_by(Pedido.criado_em.desc()).all()
 
     body = """
     <div class="actions" style="justify-content:space-between;align-items:center"><h1>Painel administrativo</h1><a class="btn secondary" href="{{ url_for('admin_logout') }}">Sair</a></div>
     <h2>Prestadores</h2><div class="card">
-    {% for p in prest %}<div class="item"><strong>{{ p.nome }}</strong> — {{ p.categoria }} — {{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}<br><span class="muted">{{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</span><p>{{ p.descricao }}</p>
-      <div class="actions">{% if not p.aprovado %}<form method="post" action="{{ url_for('aprovar_prestador', pid=p.id) }}"><button class="btn">Aprovar</button></form>{% else %}<span class="tag">Aprovado</span>{% endif %}<form method="post" action="{{ url_for('excluir_prestador', pid=p.id) }}"><button class="btn danger">Excluir</button></form></div>
+    {% for p in prest %}<div class="item"><strong>{{ p.nome }}</strong> â€” {{ p.categoria }} â€” {{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}<br><span class="muted">{{ p.telefone }}{% if p.email %} â€¢ {{ p.email }}{% endif %}</span><p>{{ p.descricao }}</p>
+      <div class="actions">{% if not p.aprovado %}<form method="post" action="{{ url_for('aprovar_prestador', pid=p.id) }}"><button class="btn">Aprovar</button></form>{% else %}<span class="tag">Aprovado</span><a class="btn secondary" href="{{ url_for('perfil_prestador', pid=p.id) }}" target="_blank">Ver perfil</a>{% endif %}<form method="post" action="{{ url_for('excluir_prestador', pid=p.id) }}"><button class="btn danger">Excluir</button></form></div>
     </div>{% else %}<p class="muted">Nenhum cadastro.</p>{% endfor %}</div>
-    <h2 class="topgap">Pedidos de serviço</h2><div class="card">
-    {% for x in ped %}<div class="item"><strong>{{ x.servico }}</strong> — {{ x.nome }} — {{ x.cidade }}{% if x.uf %}/{{ x.uf }}{% endif %}<br><span class="muted">{{ x.telefone }}{% if x.email %} • {{ x.email }}{% endif %} • {{ x.status }}</span><p>{{ x.descricao }}</p>
-      <div class="actions"><form method="post" action="{{ url_for('concluir_pedido', pid=x.id) }}"><button class="btn secondary">Marcar concluído</button></form><form method="post" action="{{ url_for('excluir_pedido', pid=x.id) }}"><button class="btn danger">Excluir</button></form></div>
+    <h2 class="topgap">Pedidos de serviÃ§o</h2><div class="card">
+    {% for x in ped %}<div class="item"><strong>{{ x.servico }}</strong> â€” {{ x.nome }} â€” {{ x.cidade }}{% if x.uf %}/{{ x.uf }}{% endif %}<br><span class="muted">{{ x.telefone }}{% if x.email %} â€¢ {{ x.email }}{% endif %} â€¢ {{ x.status }}</span><p>{{ x.descricao }}</p>
+      <div class="actions"><form method="post" action="{{ url_for('concluir_pedido', pid=x.id) }}"><button class="btn secondary">Marcar concluÃ­do</button></form><form method="post" action="{{ url_for('excluir_pedido', pid=x.id) }}"><button class="btn danger">Excluir</button></form></div>
     </div>{% else %}<p class="muted">Nenhum pedido.</p>{% endfor %}</div>
     """
-
-    return page(
-        "Admin",
-        body,
-        prest=prest,
-        ped=ped
-    )
+    return page("Admin", body, prest=prest, ped=ped)
 
 
 @app.post("/admin/prestador/<int:pid>/aprovar")
 def aprovar_prestador(pid):
     if not admin_ok():
         abort(403)
-
     p = db.get_or_404(Prestador, pid)
     p.aprovado = True
     db.session.commit()
-
     return redirect(url_for("admin"))
 
 
@@ -390,11 +344,9 @@ def aprovar_prestador(pid):
 def excluir_prestador(pid):
     if not admin_ok():
         abort(403)
-
     p = db.get_or_404(Prestador, pid)
     db.session.delete(p)
     db.session.commit()
-
     return redirect(url_for("admin"))
 
 
@@ -402,11 +354,9 @@ def excluir_prestador(pid):
 def concluir_pedido(pid):
     if not admin_ok():
         abort(403)
-
     x = db.get_or_404(Pedido, pid)
-    x.status = "Concluído"
+    x.status = "ConcluÃ­do"
     db.session.commit()
-
     return redirect(url_for("admin"))
 
 
@@ -414,11 +364,9 @@ def concluir_pedido(pid):
 def excluir_pedido(pid):
     if not admin_ok():
         abort(403)
-
     x = db.get_or_404(Pedido, pid)
     db.session.delete(x)
     db.session.commit()
-
     return redirect(url_for("admin"))
 
 
@@ -428,8 +376,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "5000")),
-        debug=True
-    )
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
