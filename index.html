@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ChamaPro — Orçamentos de ar-condicionado</title>
+  <style>
+    :root{--navy:#0b2a4a;--orange:#ff6b16;--bg:#f6f8fb;--card:#fff;--text:#102235;--muted:#607080;--green:#14a44d}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{max-width:760px;margin:auto;padding:16px}.hero{background:linear-gradient(135deg,#082847,#0f4777);color:#fff;padding:26px 20px;border-radius:0 0 28px 28px}
+    .brand{font-size:30px;font-weight:800}.brand span{color:var(--orange)} .tag{opacity:.9;margin-top:4px}
+    h1{font-size:34px;line-height:1.05;margin:28px 0 12px}.sub{font-size:18px;line-height:1.45;opacity:.94}
+    .cta{display:block;width:100%;padding:18px;border:0;border-radius:18px;background:var(--orange);color:white;font-size:20px;font-weight:800;margin-top:22px;cursor:pointer}
+    .card{background:#fff;border-radius:20px;padding:20px;margin:16px 0;box-shadow:0 8px 25px rgba(0,0,0,.06)}
+    .hidden{display:none}.progress{height:8px;background:#e8edf3;border-radius:10px;overflow:hidden;margin-bottom:18px}.bar{height:100%;background:var(--orange);width:0%}
+    .qtitle{font-size:22px;font-weight:800;margin:0 0 14px}.options{display:grid;gap:10px}
+    .option{padding:14px 16px;border:1px solid #dce4ec;border-radius:14px;background:#fff;cursor:pointer;text-align:left;font-size:16px}
+    .option.selected{border-color:var(--orange);box-shadow:0 0 0 2px rgba(255,107,22,.12)}
+    input,select,textarea{width:100%;padding:14px;border:1px solid #dce4ec;border-radius:12px;font-size:16px;margin:7px 0 12px}
+    .row{display:flex;gap:10px}.row>*{flex:1}.nav{display:flex;gap:10px;margin-top:18px}.nav button{flex:1;padding:14px;border-radius:12px;border:0;font-weight:700;cursor:pointer}
+    .back{background:#edf1f5}.next{background:var(--navy);color:#fff}
+    .score{font-size:48px;font-weight:900;color:var(--orange)} .pill{display:inline-block;padding:8px 12px;border-radius:999px;background:#fff2ea;color:#bd4c0c;font-weight:700}
+    table{width:100%;border-collapse:collapse;font-size:14px} th,td{padding:10px;border-bottom:1px solid #edf1f5;text-align:left}
+    .wa{display:inline-block;background:#1fbf5b;color:#fff;text-decoration:none;padding:10px 12px;border-radius:10px;font-weight:700}
+    .small{font-size:13px;color:var(--muted)} .footer{text-align:center;color:var(--muted);font-size:13px;padding:20px 0 30px}
+    @media(max-width:560px){h1{font-size:31px}.row{display:block}table{font-size:12px}.hide-mobile{display:none}}
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <div class="wrap">
+      <div class="brand">Chama<span>Pro</span></div>
+      <div class="tag">Profissionais para o que você precisa</div>
+      <h1>Precisa instalar ou consertar seu ar-condicionado?</h1>
+      <div class="sub">Peça orçamento para profissionais da sua região de forma rápida, gratuita e sem compromisso.</div>
+      <button class="cta" onclick="startForm()">QUERO UM ORÇAMENTO</button>
+    </div>
+  </section>
+
+  <main class="wrap">
+    <div class="card">
+      <strong>Atendimento inicial:</strong> Londrina e região<br>
+      <span class="small">MVP de validação comercial — até 3 profissionais poderão receber a solicitação.</span>
+    </div>
+
+    <section id="formCard" class="card hidden">
+      <div class="progress"><div id="bar" class="bar"></div></div>
+      <div id="step"></div>
+      <div class="nav">
+        <button class="back" onclick="prevStep()">Voltar</button>
+        <button class="next" onclick="nextStep()">Continuar</button>
+      </div>
+    </section>
+
+    <section id="resultCard" class="card hidden">
+      <div class="pill">Solicitação recebida</div>
+      <h2>Seu ChamaScore</h2>
+      <div class="score" id="scoreOut">0/100</div>
+      <p id="scoreText"></p>
+      <p class="small">O ChamaScore ajuda a organizar a urgência e a completude do pedido. Não representa garantia de contratação.</p>
+    </section>
+
+    <section id="admin" class="card">
+      <h2>Painel de Leads — demonstração</h2>
+      <p class="small">Os dados ficam salvos apenas neste navegador, usando armazenamento local. Para produção, usaremos um banco de dados online.</p>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>Score</th><th>Nome</th><th>Serviço</th><th>Prazo</th><th class="hide-mobile">Bairro</th><th>Ação</th></tr></thead>
+          <tbody id="leadRows"></tbody>
+        </table>
+      </div>
+      <button class="back" style="margin-top:12px;padding:10px 12px;border:0;border-radius:10px" onclick="clearLeads()">Limpar dados de teste</button>
+    </section>
+
+    <div class="footer">ChamaPro — protótipo de validação</div>
+  </main>
+
+<script>
+const steps = [
+  {key:'service',title:'Qual serviço você precisa?',type:'options',opts:['Instalação','Limpeza e higienização','Manutenção / conserto','Desinstalação','Outro']},
+  {key:'btu',title:'Qual a potência do aparelho?',type:'options',opts:['9.000 BTUs','12.000 BTUs','18.000 BTUs','24.000 BTUs ou mais','Não sei']},
+  {key:'hasDevice',title:'Você já possui o aparelho?',type:'options',opts:['Sim','Não']},
+  {key:'place',title:'Onde será o serviço?',type:'options',opts:['Casa','Apartamento','Comércio / empresa']},
+  {key:'deadline',title:'Para quando precisa?',type:'options',opts:['Urgente','Esta semana','Até 30 dias','Só pesquisando preços']},
+  {key:'details',title:'Onde será o atendimento?',type:'fields'},
+  {key:'contact',title:'Seus dados para contato',type:'contact'}
+];
+let i=0, data={};
+
+function startForm(){document.getElementById('formCard').classList.remove('hidden');document.getElementById('formCard').scrollIntoView({behavior:'smooth'});renderStep();}
+function renderStep(){
+  document.getElementById('bar').style.width=((i+1)/steps.length*100)+'%';
+  const s=steps[i]; let h=`<div class="qtitle">${s.title}</div>`;
+  if(s.type==='options'){
+    h+='<div class="options">'+s.opts.map(o=>`<button class="option ${data[s.key]===o?'selected':''}" onclick="choose('${s.key}','${o.replaceAll("'","\\'")}')">${o}</button>`).join('')+'</div>';
+  } else if(s.type==='fields'){
+    h+=`<input id="city" placeholder="Cidade" value="${data.city||'Londrina'}">
+        <input id="bairro" placeholder="Bairro" value="${data.bairro||''}">
+        <textarea id="notes" placeholder="Observações, marca/modelo, defeito, detalhes do local...">${data.notes||''}</textarea>
+        <label><input id="photo" type="checkbox" ${data.photo?'checked':''}> Tenho foto do aparelho/local para enviar</label>`;
+  } else {
+    h+=`<input id="name" placeholder="Nome" value="${data.name||''}">
+        <input id="phone" placeholder="WhatsApp com DDD" value="${data.phone||''}">
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px"><input id="consent" type="checkbox" style="width:auto;margin-top:3px" ${data.consent?'checked':''}>
+        Autorizo o uso dos meus dados para processar esta solicitação e o compartilhamento com até 3 profissionais parceiros que possam atender meu pedido.</label>`;
+  }
+  document.getElementById('step').innerHTML=h;
+}
+function choose(k,v){data[k]=v;renderStep();}
+function collect(){
+  const s=steps[i];
+  if(s.type==='fields'){data.city=document.getElementById('city').value.trim();data.bairro=document.getElementById('bairro').value.trim();data.notes=document.getElementById('notes').value.trim();data.photo=document.getElementById('photo').checked;}
+  if(s.type==='contact'){data.name=document.getElementById('name').value.trim();data.phone=document.getElementById('phone').value.trim();data.consent=document.getElementById('consent').checked;}
+}
+function nextStep(){
+  collect(); const s=steps[i];
+  if(s.type==='options' && !data[s.key]) return alert('Escolha uma opção para continuar.');
+  if(s.type==='fields' && (!data.city || !data.bairro)) return alert('Informe cidade e bairro.');
+  if(s.type==='contact' && (!data.name || !data.phone || !data.consent)) return alert('Preencha nome, WhatsApp e autorize o processamento dos dados.');
+  if(i<steps.length-1){i++;renderStep();} else finish();
+}
+function prevStep(){collect(); if(i>0){i--;renderStep();}}
+function calcScore(d){
+  let s=35;
+  if(['Urgente','Esta semana'].includes(d.deadline)) s+=20;
+  else if(d.deadline==='Até 30 dias') s+=10;
+  if(d.hasDevice==='Sim') s+=10;
+  if(d.photo) s+=10;
+  if(d.bairro) s+=5;
+  if(d.notes && d.notes.length>15) s+=5;
+  if(d.phone && d.phone.replace(/\D/g,'').length>=10) s+=10;
+  if(d.service==='Instalação' || d.service==='Manutenção / conserto') s+=5;
+  return Math.min(100,s);
+}
+function finish(){
+  data.score=calcScore(data); data.created=new Date().toLocaleString('pt-BR');
+  const leads=JSON.parse(localStorage.getItem('chamapro_leads')||'[]'); leads.unshift({...data}); localStorage.setItem('chamapro_leads',JSON.stringify(leads));
+  document.getElementById('formCard').classList.add('hidden'); document.getElementById('resultCard').classList.remove('hidden');
+  document.getElementById('scoreOut').innerText=data.score+'/100';
+  document.getElementById('scoreText').innerText=data.score>=80?'Pedido muito completo e com alta prioridade de atendimento.':data.score>=60?'Pedido bem qualificado. Faltam poucos detalhes para ficar completo.':'Pedido recebido. Podemos coletar mais informações antes de encaminhar.';
+  renderLeads(); document.getElementById('resultCard').scrollIntoView({behavior:'smooth'});
+  i=0; data={};
+}
+function renderLeads(){
+  const leads=JSON.parse(localStorage.getItem('chamapro_leads')||'[]');
+  document.getElementById('leadRows').innerHTML=leads.map((l,idx)=>{
+    const msg=`Novo lead ChamaPro%0A🔥 Score: ${l.score}/100%0A👤 ${encodeURIComponent(l.name)}%0A📞 ${encodeURIComponent(l.phone)}%0A🛠 ${encodeURIComponent(l.service)}%0A❄️ ${encodeURIComponent(l.btu||'') }%0A📍 ${encodeURIComponent((l.bairro||'')+', '+(l.city||''))}%0A⏱ ${encodeURIComponent(l.deadline)}%0A📝 ${encodeURIComponent(l.notes||'Sem observações')}`;
+    return `<tr><td><b>${l.score}</b></td><td>${l.name}</td><td>${l.service}</td><td>${l.deadline}</td><td class="hide-mobile">${l.bairro||''}</td><td><a class="wa" target="_blank" href="https://wa.me/?text=${msg}">WhatsApp</a></td></tr>`;
+  }).join('') || '<tr><td colspan="6">Nenhum lead de teste ainda.</td></tr>';
+}
+function clearLeads(){if(confirm('Apagar os leads de teste deste navegador?')){localStorage.removeItem('chamapro_leads');renderLeads();}}
+renderLeads();
+</script>
+</body>
+</html>
