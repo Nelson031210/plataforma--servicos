@@ -3,7 +3,7 @@ import hmac
 from datetime import datetime
 from flask import Flask, request, redirect, url_for, session, flash, render_template_string, abort
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import inspect, or_, text
 
 app = Flask(__name__)
 
@@ -18,11 +18,18 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
 db = SQLAlchemy(app)
 
+UFS = (
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
+    "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
+    "RS", "RO", "RR", "SC", "SP", "SE", "TO"
+)
+
 
 class Prestador(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(120), nullable=False)
     cidade = db.Column(db.String(100), nullable=False)
+    uf = db.Column(db.String(2), nullable=True)
     telefone = db.Column(db.String(40), nullable=False)
     email = db.Column(db.String(160), nullable=True)
     categoria = db.Column(db.String(100), nullable=False)
@@ -35,6 +42,7 @@ class Pedido(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(120), nullable=False)
     cidade = db.Column(db.String(100), nullable=False)
+    uf = db.Column(db.String(2), nullable=True)
     telefone = db.Column(db.String(40), nullable=False)
     email = db.Column(db.String(160), nullable=True)
     servico = db.Column(db.String(120), nullable=False)
@@ -43,8 +51,24 @@ class Pedido(db.Model):
     criado_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
-with app.app_context():
+def atualizar_estrutura_banco():
+    """Cria as tabelas e acrescenta colunas novas sem apagar dados existentes."""
     db.create_all()
+
+    with db.engine.begin() as conexao:
+        for tabela in ("prestador", "pedido"):
+            colunas = {
+                coluna["name"]
+                for coluna in inspect(conexao).get_columns(tabela)
+            }
+            if "uf" not in colunas:
+                conexao.execute(
+                    text(f"ALTER TABLE {tabela} ADD COLUMN uf VARCHAR(2)")
+                )
+
+
+with app.app_context():
+    atualizar_estrutura_banco()
 
 
 BASE = """
@@ -64,7 +88,7 @@ BASE = """
     label{display:block;font-weight:700;margin:14px 0 6px}input,textarea,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;background:white}textarea{min-height:120px}
     .muted{color:var(--muted)}.flash{padding:12px 14px;border-radius:10px;background:#dcfce7;color:#166534;margin:12px 0}.bad{background:#fee2e2;color:#991b1b}.tag{display:inline-block;padding:4px 9px;border-radius:999px;background:#e0e7ff;color:#3730a3;font-size:13px}
     .item{padding:15px 0;border-bottom:1px solid var(--border)}.item:last-child{border-bottom:0}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.topgap{margin-top:22px}
-    footer{padding:38px 0;color:var(--muted);text-align:center}.search{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.search label{margin-top:0}.search-actions{display:flex;gap:8px}.result-summary{margin:14px 0 0}@media(max-width:720px){.search{grid-template-columns:1fr}.search-actions .btn{flex:1;text-align:center}.nav .wrap{align-items:flex-start}.navlinks{font-size:14px}}
+    footer{padding:38px 0;color:var(--muted);text-align:center}.search{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end}.search label{margin-top:0}.search-actions{display:flex;gap:8px}.result-summary{margin:14px 0 0}@media(max-width:820px){.search{grid-template-columns:1fr}.search-actions .btn{flex:1;text-align:center}.nav .wrap{align-items:flex-start}.navlinks{font-size:14px}}
   </style>
 </head>
 <body>
@@ -108,6 +132,7 @@ def home():
 @app.route("/prestadores")
 def prestadores():
     servico = (request.args.get("servico") or "").strip()
+    uf = (request.args.get("uf") or "").strip().upper()
     cidade = (request.args.get("cidade") or "").strip()
     query = Prestador.query.filter_by(aprovado=True)
 
@@ -124,22 +149,26 @@ def prestadores():
             Prestador.cidade.ilike(f"%{cidade}%")
         )
 
+    if uf in UFS:
+        query = query.filter(Prestador.uf.ilike(uf))
+
     itens = query.order_by(
         Prestador.criado_em.desc()
     ).all()
 
     body = """
     <h1>Encontre um prestador</h1>
-    <p class="muted">Pesquise o serviço de que precisa e informe a cidade onde será realizado.</p>
+    <p class="muted">Pesquise o serviço de que precisa e informe o estado e a cidade onde será realizado.</p>
     <form class="search card" method="get">
       <div><label for="servico">Serviço ou categoria</label><input id="servico" name="servico" value="{{ servico }}" placeholder="Ex.: eletricista, pintura"></div>
+      <div><label for="uf">Estado (UF)</label><select id="uf" name="uf"><option value="">Todos os estados</option>{% for sigla in ufs %}<option value="{{ sigla }}" {% if uf == sigla %}selected{% endif %}>{{ sigla }}</option>{% endfor %}</select></div>
       <div><label for="cidade">Cidade</label><input id="cidade" name="cidade" value="{{ cidade }}" placeholder="Ex.: Londrina"></div>
-      <div class="search-actions"><button class="btn" type="submit">Buscar</button>{% if servico or cidade %}<a class="btn secondary" href="{{ url_for('prestadores') }}">Limpar</a>{% endif %}</div>
+      <div class="search-actions"><button class="btn" type="submit">Buscar</button>{% if servico or uf or cidade %}<a class="btn secondary" href="{{ url_for('prestadores') }}">Limpar</a>{% endif %}</div>
     </form>
-    {% if servico or cidade %}<p class="muted result-summary">{{ itens|length }} prestador{% if itens|length != 1 %}es{% endif %} encontrado{% if itens|length != 1 %}s{% endif %}.</p>{% endif %}
+    {% if servico or uf or cidade %}<p class="muted result-summary">{{ itens|length }} prestador{% if itens|length != 1 %}es{% endif %} encontrado{% if itens|length != 1 %}s{% endif %}.</p>{% endif %}
     <div class="card topgap">
     {% if itens %}
-      {% for p in itens %}<div class="item"><h3>{{ p.nome }}</h3><div><span class="tag">{{ p.categoria }}</span> <span class="muted">{{ p.cidade }}</span></div><p>{{ p.descricao }}</p><strong>Contato:</strong> {{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</div>{% endfor %}
+      {% for p in itens %}<div class="item"><h3>{{ p.nome }}</h3><div><span class="tag">{{ p.categoria }}</span> <span class="muted">{{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}</span></div><p>{{ p.descricao }}</p><strong>Contato:</strong> {{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</div>{% endfor %}
     {% else %}<p class="muted">Nenhum prestador encontrado com esses filtros. Tente outro serviço ou uma cidade próxima.</p>{% endif %}
     </div>
     """
@@ -149,7 +178,9 @@ def prestadores():
         body,
         itens=itens,
         servico=servico,
-        cidade=cidade
+        uf=uf,
+        cidade=cidade,
+        ufs=UFS
     )
 
 
@@ -161,6 +192,7 @@ def quero_servico():
             for k in [
                 "nome",
                 "cidade",
+                "uf",
                 "telefone",
                 "email",
                 "servico",
@@ -171,16 +203,21 @@ def quero_servico():
         obrig = [
             "nome",
             "cidade",
+            "uf",
             "telefone",
             "servico",
             "descricao"
         ]
+
+        dados["uf"] = dados["uf"].upper()
 
         if any(not dados[k] for k in obrig):
             flash(
                 "Preencha todos os campos obrigatórios.",
                 "error"
             )
+        elif dados["uf"] not in UFS:
+            flash("Selecione um Estado (UF) válido.", "error")
         else:
             db.session.add(Pedido(**dados))
             db.session.commit()
@@ -197,6 +234,7 @@ def quero_servico():
     <h1>Preciso de um serviço</h1><div class="card">
     <form method="post">
       <label>Seu nome *</label><input name="nome" required>
+      <label>Estado (UF) *</label><select name="uf" required><option value="">Selecione</option>{% for sigla in ufs %}<option value="{{ sigla }}">{{ sigla }}</option>{% endfor %}</select>
       <label>Cidade *</label><input name="cidade" required>
       <label>Telefone/WhatsApp *</label><input name="telefone" required>
       <label>E-mail</label><input type="email" name="email">
@@ -206,7 +244,7 @@ def quero_servico():
     </form></div>
     """
 
-    return page("Pedir serviço", body)
+    return page("Pedir serviço", body, ufs=UFS)
 
 
 @app.route("/sou-prestador", methods=["GET", "POST"])
@@ -217,6 +255,7 @@ def sou_prestador():
             for k in [
                 "nome",
                 "cidade",
+                "uf",
                 "telefone",
                 "email",
                 "categoria",
@@ -227,16 +266,21 @@ def sou_prestador():
         obrig = [
             "nome",
             "cidade",
+            "uf",
             "telefone",
             "categoria",
             "descricao"
         ]
+
+        dados["uf"] = dados["uf"].upper()
 
         if any(not dados[k] for k in obrig):
             flash(
                 "Preencha todos os campos obrigatórios.",
                 "error"
             )
+        elif dados["uf"] not in UFS:
+            flash("Selecione um Estado (UF) válido.", "error")
         else:
             db.session.add(Prestador(**dados))
             db.session.commit()
@@ -253,6 +297,7 @@ def sou_prestador():
     <h1>Cadastro de prestador</h1><div class="card">
     <form method="post">
       <label>Nome ou empresa *</label><input name="nome" required>
+      <label>Estado (UF) *</label><select name="uf" required><option value="">Selecione</option>{% for sigla in ufs %}<option value="{{ sigla }}">{{ sigla }}</option>{% endfor %}</select>
       <label>Cidade *</label><input name="cidade" required>
       <label>Telefone/WhatsApp *</label><input name="telefone" required>
       <label>E-mail</label><input type="email" name="email">
@@ -262,7 +307,7 @@ def sou_prestador():
     </form></div>
     """
 
-    return page("Sou prestador", body)
+    return page("Sou prestador", body, ufs=UFS)
 
 
 def admin_ok():
@@ -312,11 +357,11 @@ def admin():
     body = """
     <div class="actions" style="justify-content:space-between;align-items:center"><h1>Painel administrativo</h1><a class="btn secondary" href="{{ url_for('admin_logout') }}">Sair</a></div>
     <h2>Prestadores</h2><div class="card">
-    {% for p in prest %}<div class="item"><strong>{{ p.nome }}</strong> — {{ p.categoria }} — {{ p.cidade }}<br><span class="muted">{{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</span><p>{{ p.descricao }}</p>
+    {% for p in prest %}<div class="item"><strong>{{ p.nome }}</strong> — {{ p.categoria }} — {{ p.cidade }}{% if p.uf %}/{{ p.uf }}{% endif %}<br><span class="muted">{{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</span><p>{{ p.descricao }}</p>
       <div class="actions">{% if not p.aprovado %}<form method="post" action="{{ url_for('aprovar_prestador', pid=p.id) }}"><button class="btn">Aprovar</button></form>{% else %}<span class="tag">Aprovado</span>{% endif %}<form method="post" action="{{ url_for('excluir_prestador', pid=p.id) }}"><button class="btn danger">Excluir</button></form></div>
     </div>{% else %}<p class="muted">Nenhum cadastro.</p>{% endfor %}</div>
     <h2 class="topgap">Pedidos de serviço</h2><div class="card">
-    {% for x in ped %}<div class="item"><strong>{{ x.servico }}</strong> — {{ x.nome }} — {{ x.cidade }}<br><span class="muted">{{ x.telefone }}{% if x.email %} • {{ x.email }}{% endif %} • {{ x.status }}</span><p>{{ x.descricao }}</p>
+    {% for x in ped %}<div class="item"><strong>{{ x.servico }}</strong> — {{ x.nome }} — {{ x.cidade }}{% if x.uf %}/{{ x.uf }}{% endif %}<br><span class="muted">{{ x.telefone }}{% if x.email %} • {{ x.email }}{% endif %} • {{ x.status }}</span><p>{{ x.descricao }}</p>
       <div class="actions"><form method="post" action="{{ url_for('concluir_pedido', pid=x.id) }}"><button class="btn secondary">Marcar concluído</button></form><form method="post" action="{{ url_for('excluir_pedido', pid=x.id) }}"><button class="btn danger">Excluir</button></form></div>
     </div>{% else %}<p class="muted">Nenhum pedido.</p>{% endfor %}</div>
     """
