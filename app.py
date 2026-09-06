@@ -18,6 +18,7 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
 db = SQLAlchemy(app)
 
+
 class Prestador(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(120), nullable=False)
@@ -28,6 +29,7 @@ class Prestador(db.Model):
     descricao = db.Column(db.Text, nullable=False)
     aprovado = db.Column(db.Boolean, default=False, nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
 
 class Pedido(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -40,8 +42,10 @@ class Pedido(db.Model):
     status = db.Column(db.String(30), default="Novo", nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+
 with app.app_context():
     db.create_all()
+
 
 BASE = """
 <!doctype html>
@@ -60,7 +64,7 @@ BASE = """
     label{display:block;font-weight:700;margin:14px 0 6px}input,textarea,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;background:white}textarea{min-height:120px}
     .muted{color:var(--muted)}.flash{padding:12px 14px;border-radius:10px;background:#dcfce7;color:#166534;margin:12px 0}.bad{background:#fee2e2;color:#991b1b}.tag{display:inline-block;padding:4px 9px;border-radius:999px;background:#e0e7ff;color:#3730a3;font-size:13px}
     .item{padding:15px 0;border-bottom:1px solid var(--border)}.item:last-child{border-bottom:0}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.topgap{margin-top:22px}
-    footer{padding:38px 0;color:var(--muted);text-align:center}.search{display:flex;gap:8px}.search input{flex:1}@media(max-width:620px){.search{display:block}.search .btn{width:100%;margin-top:8px}.nav .wrap{align-items:flex-start}.navlinks{font-size:14px}}
+    footer{padding:38px 0;color:var(--muted);text-align:center}.search{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.search label{margin-top:0}.search-actions{display:flex;gap:8px}.result-summary{margin:14px 0 0}@media(max-width:720px){.search{grid-template-columns:1fr}.search-actions .btn{flex:1;text-align:center}.nav .wrap{align-items:flex-start}.navlinks{font-size:14px}}
   </style>
 </head>
 <body>
@@ -77,9 +81,11 @@ BASE = """
 </body></html>
 """
 
+
 def page(title, body_tpl, **ctx):
     body = render_template_string(body_tpl, **ctx)
     return render_template_string(BASE, title=title, body=body)
+
 
 @app.get("/")
 def home():
@@ -88,7 +94,7 @@ def home():
       <span class="tag">Encontre quem faz</span>
       <h1>Serviços locais, sem complicação.</h1>
       <p>Clientes publicam o que precisam. Profissionais se cadastram para serem encontrados na sua região.</p>
-      <div class="actions"><a class="btn" href="{{ url_for('quero_servico') }}">Preciso de um serviço</a><a class="btn secondary" href="{{ url_for('sou_prestador') }}">Quero prestar serviços</a></div>
+      <div class="actions"><a class="btn" href="{{ url_for('prestadores') }}">Buscar prestadores</a><a class="btn secondary" href="{{ url_for('quero_servico') }}">Pedir um serviço</a><a class="btn secondary" href="{{ url_for('sou_prestador') }}">Quero prestar serviços</a></div>
     </section>
     <section class="grid">
       <div class="card"><h2>Para clientes</h2><p class="muted">Descreva o serviço, informe sua cidade e deixe seus dados para contato.</p></div>
@@ -98,37 +104,95 @@ def home():
     """
     return page("Início", body)
 
+
 @app.route("/prestadores")
 def prestadores():
-    q = (request.args.get("q") or "").strip()
+    servico = (request.args.get("servico") or "").strip()
+    cidade = (request.args.get("cidade") or "").strip()
     query = Prestador.query.filter_by(aprovado=True)
-    if q:
-        like = f"%{q}%"
-        query = query.filter(or_(Prestador.nome.ilike(like), Prestador.cidade.ilike(like), Prestador.categoria.ilike(like), Prestador.descricao.ilike(like)))
-    itens = query.order_by(Prestador.criado_em.desc()).all()
+
+    if servico:
+        like_servico = f"%{servico}%"
+        query = query.filter(or_(
+            Prestador.categoria.ilike(like_servico),
+            Prestador.descricao.ilike(like_servico),
+            Prestador.nome.ilike(like_servico),
+        ))
+
+    if cidade:
+        query = query.filter(
+            Prestador.cidade.ilike(f"%{cidade}%")
+        )
+
+    itens = query.order_by(
+        Prestador.criado_em.desc()
+    ).all()
+
     body = """
-    <h1>Prestadores</h1>
-    <form class="search" method="get"><input name="q" value="{{ q }}" placeholder="Ex.: pedreiro, eletricista, Londrina"><button class="btn">Buscar</button></form>
+    <h1>Encontre um prestador</h1>
+    <p class="muted">Pesquise o serviço de que precisa e informe a cidade onde será realizado.</p>
+    <form class="search card" method="get">
+      <div><label for="servico">Serviço ou categoria</label><input id="servico" name="servico" value="{{ servico }}" placeholder="Ex.: eletricista, pintura"></div>
+      <div><label for="cidade">Cidade</label><input id="cidade" name="cidade" value="{{ cidade }}" placeholder="Ex.: Londrina"></div>
+      <div class="search-actions"><button class="btn" type="submit">Buscar</button>{% if servico or cidade %}<a class="btn secondary" href="{{ url_for('prestadores') }}">Limpar</a>{% endif %}</div>
+    </form>
+    {% if servico or cidade %}<p class="muted result-summary">{{ itens|length }} prestador{% if itens|length != 1 %}es{% endif %} encontrado{% if itens|length != 1 %}s{% endif %}.</p>{% endif %}
     <div class="card topgap">
     {% if itens %}
       {% for p in itens %}<div class="item"><h3>{{ p.nome }}</h3><div><span class="tag">{{ p.categoria }}</span> <span class="muted">{{ p.cidade }}</span></div><p>{{ p.descricao }}</p><strong>Contato:</strong> {{ p.telefone }}{% if p.email %} • {{ p.email }}{% endif %}</div>{% endfor %}
-    {% else %}<p class="muted">Nenhum prestador encontrado ainda.</p>{% endif %}
+    {% else %}<p class="muted">Nenhum prestador encontrado com esses filtros. Tente outro serviço ou uma cidade próxima.</p>{% endif %}
     </div>
     """
-    return page("Prestadores", body, itens=itens, q=q)
+
+    return page(
+        "Prestadores",
+        body,
+        itens=itens,
+        servico=servico,
+        cidade=cidade
+    )
+
 
 @app.route("/quero-servico", methods=["GET", "POST"])
 def quero_servico():
     if request.method == "POST":
-        dados = {k:(request.form.get(k) or "").strip() for k in ["nome","cidade","telefone","email","servico","descricao"]}
-        obrig = ["nome","cidade","telefone","servico","descricao"]
+        dados = {
+            k: (request.form.get(k) or "").strip()
+            for k in [
+                "nome",
+                "cidade",
+                "telefone",
+                "email",
+                "servico",
+                "descricao"
+            ]
+        }
+
+        obrig = [
+            "nome",
+            "cidade",
+            "telefone",
+            "servico",
+            "descricao"
+        ]
+
         if any(not dados[k] for k in obrig):
-            flash("Preencha todos os campos obrigatórios.", "error")
+            flash(
+                "Preencha todos os campos obrigatórios.",
+                "error"
+            )
         else:
             db.session.add(Pedido(**dados))
             db.session.commit()
-            flash("Pedido enviado com sucesso! Entraremos em contato quando houver um profissional compatível.")
-            return redirect(url_for("quero_servico"))
+
+            flash(
+                "Pedido enviado com sucesso! Entraremos em contato quando houver um profissional compatível."
+            )
+
+            return redirect(
+                url_for("quero_servico")
+            )
+
     body = """
     <h1>Preciso de um serviço</h1><div class="card">
     <form method="post">
@@ -141,20 +205,50 @@ def quero_servico():
       <div class="topgap"><button class="btn">Enviar pedido</button></div>
     </form></div>
     """
+
     return page("Pedir serviço", body)
+
 
 @app.route("/sou-prestador", methods=["GET", "POST"])
 def sou_prestador():
     if request.method == "POST":
-        dados = {k:(request.form.get(k) or "").strip() for k in ["nome","cidade","telefone","email","categoria","descricao"]}
-        obrig = ["nome","cidade","telefone","categoria","descricao"]
+        dados = {
+            k: (request.form.get(k) or "").strip()
+            for k in [
+                "nome",
+                "cidade",
+                "telefone",
+                "email",
+                "categoria",
+                "descricao"
+            ]
+        }
+
+        obrig = [
+            "nome",
+            "cidade",
+            "telefone",
+            "categoria",
+            "descricao"
+        ]
+
         if any(not dados[k] for k in obrig):
-            flash("Preencha todos os campos obrigatórios.", "error")
+            flash(
+                "Preencha todos os campos obrigatórios.",
+                "error"
+            )
         else:
             db.session.add(Prestador(**dados))
             db.session.commit()
-            flash("Cadastro recebido! Ele ficará visível após aprovação.")
-            return redirect(url_for("sou_prestador"))
+
+            flash(
+                "Cadastro recebido! Ele ficará visível após aprovação."
+            )
+
+            return redirect(
+                url_for("sou_prestador")
+            )
+
     body = """
     <h1>Cadastro de prestador</h1><div class="card">
     <form method="post">
@@ -167,38 +261,54 @@ def sou_prestador():
       <div class="topgap"><button class="btn">Cadastrar</button></div>
     </form></div>
     """
+
     return page("Sou prestador", body)
+
 
 def admin_ok():
     return session.get("admin") is True
+
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
         senha = request.form.get("senha", "")
         correta = os.getenv("ADMIN_PASSWORD", "")
+
         if correta and hmac.compare_digest(senha, correta):
             session["admin"] = True
             return redirect(url_for("admin"))
+
         flash("Senha inválida.", "error")
+
     body = """
     <h1>Administração</h1><div class="card"><form method="post">
     <label>Senha administrativa</label><input type="password" name="senha" required>
     <div class="topgap"><button class="btn">Entrar</button></div></form></div>
     """
+
     return page("Login", body)
+
 
 @app.get("/admin/logout")
 def admin_logout():
     session.clear()
     return redirect(url_for("home"))
 
+
 @app.get("/admin")
 def admin():
     if not admin_ok():
         return redirect(url_for("admin_login"))
-    prest = Prestador.query.order_by(Prestador.criado_em.desc()).all()
-    ped = Pedido.query.order_by(Pedido.criado_em.desc()).all()
+
+    prest = Prestador.query.order_by(
+        Prestador.criado_em.desc()
+    ).all()
+
+    ped = Pedido.query.order_by(
+        Pedido.criado_em.desc()
+    ).all()
+
     body = """
     <div class="actions" style="justify-content:space-between;align-items:center"><h1>Painel administrativo</h1><a class="btn secondary" href="{{ url_for('admin_logout') }}">Sair</a></div>
     <h2>Prestadores</h2><div class="card">
@@ -210,43 +320,71 @@ def admin():
       <div class="actions"><form method="post" action="{{ url_for('concluir_pedido', pid=x.id) }}"><button class="btn secondary">Marcar concluído</button></form><form method="post" action="{{ url_for('excluir_pedido', pid=x.id) }}"><button class="btn danger">Excluir</button></form></div>
     </div>{% else %}<p class="muted">Nenhum pedido.</p>{% endfor %}</div>
     """
-    return page("Admin", body, prest=prest, ped=ped)
+
+    return page(
+        "Admin",
+        body,
+        prest=prest,
+        ped=ped
+    )
+
 
 @app.post("/admin/prestador/<int:pid>/aprovar")
 def aprovar_prestador(pid):
-    if not admin_ok(): abort(403)
+    if not admin_ok():
+        abort(403)
+
     p = db.get_or_404(Prestador, pid)
     p.aprovado = True
     db.session.commit()
+
     return redirect(url_for("admin"))
+
 
 @app.post("/admin/prestador/<int:pid>/excluir")
 def excluir_prestador(pid):
-    if not admin_ok(): abort(403)
+    if not admin_ok():
+        abort(403)
+
     p = db.get_or_404(Prestador, pid)
     db.session.delete(p)
     db.session.commit()
+
     return redirect(url_for("admin"))
+
 
 @app.post("/admin/pedido/<int:pid>/concluir")
 def concluir_pedido(pid):
-    if not admin_ok(): abort(403)
+    if not admin_ok():
+        abort(403)
+
     x = db.get_or_404(Pedido, pid)
     x.status = "Concluído"
     db.session.commit()
+
     return redirect(url_for("admin"))
+
 
 @app.post("/admin/pedido/<int:pid>/excluir")
 def excluir_pedido(pid):
-    if not admin_ok(): abort(403)
+    if not admin_ok():
+        abort(403)
+
     x = db.get_or_404(Pedido, pid)
     db.session.delete(x)
     db.session.commit()
+
     return redirect(url_for("admin"))
+
 
 @app.get("/health")
 def health():
-    return {"status":"ok"}
+    return {"status": "ok"}
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "5000")),
+        debug=True
+    )
