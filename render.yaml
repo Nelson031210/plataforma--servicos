@@ -2,7 +2,7 @@ services:
   - type: web
     name: conecta-servicos
     runtime: python
-      plan:free
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
