@@ -254,6 +254,28 @@ def normalizar_texto(valor):
     )
 
 
+def uf_valida(valor):
+
+    uf = (valor or "").strip().upper()
+
+    if uf in UFS:
+        return uf
+
+    return ""
+
+
+@app.template_global()
+def formatar_localizacao(cidade, uf):
+
+    cidade_formatada = (cidade or "").strip()
+    uf_formatada = uf_valida(uf)
+
+    if cidade_formatada and uf_formatada:
+        return f"{cidade_formatada}/{uf_formatada}"
+
+    return cidade_formatada or uf_formatada
+
+
 def categoria_compativel(servico, categoria):
 
     servico_normalizado = normalizar_texto(servico)
@@ -274,8 +296,14 @@ def encontrar_prestadores_compativeis(pedido, prestadores):
     mesma_cidade = []
     mesmo_estado = []
 
-    pedido_uf = normalizar_texto(pedido.uf)
+    pedido_uf = uf_valida(pedido.uf)
     pedido_cidade = normalizar_texto(pedido.cidade)
+
+    if not pedido_uf:
+        return {
+            "mesma_cidade": mesma_cidade,
+            "mesmo_estado": mesmo_estado,
+        }
 
     for prestador in prestadores:
 
@@ -285,7 +313,9 @@ def encontrar_prestadores_compativeis(pedido, prestadores):
         ):
             continue
 
-        if normalizar_texto(prestador.uf) != pedido_uf:
+        prestador_uf = uf_valida(prestador.uf)
+
+        if not prestador_uf or prestador_uf != pedido_uf:
             continue
 
         if normalizar_texto(prestador.cidade) == pedido_cidade:
@@ -1054,11 +1084,7 @@ def prestadores():
 
     <span class="muted">
 
-    {{ p.cidade }}
-
-    {% if p.uf %}
-    /{{ p.uf }}
-    {% endif %}
+    {{ formatar_localizacao(p.cidade, p.uf) }}
 
     </span>
 
@@ -1163,11 +1189,7 @@ def perfil_prestador(pid):
 
     <p class="muted">
 
-    {{ p.cidade }}
-
-    {% if p.uf %}
-    /{{ p.uf }}
-    {% endif %}
+    {{ formatar_localizacao(p.cidade, p.uf) }}
 
     </p>
 
@@ -1813,11 +1835,7 @@ def admin():
     —
     {{ p.categoria }}
     —
-    {{ p.cidade }}
-
-    {% if p.uf %}
-    /{{ p.uf }}
-    {% endif %}
+    {{ formatar_localizacao(p.cidade, p.uf) }}
 
     <br>
 
@@ -1920,11 +1938,7 @@ def admin():
     —
     {{ x.nome }}
     —
-    {{ x.cidade }}
-
-    {% if x.uf %}
-    /{{ x.uf }}
-    {% endif %}
+    {{ formatar_localizacao(x.cidade, x.uf) }}
 
     <br>
 
@@ -1957,7 +1971,7 @@ def admin():
     <div class="item">
 
     {{ p.nome }} — {{ p.categoria }} —
-    {{ p.cidade }}/{{ p.uf }}
+    {{ formatar_localizacao(p.cidade, p.uf) }}
 
     <div class="actions">
 
@@ -1999,7 +2013,7 @@ def admin():
     <div class="item">
 
     {{ p.nome }} — {{ p.categoria }} —
-    {{ p.cidade }}/{{ p.uf }}
+    {{ formatar_localizacao(p.cidade, p.uf) }}
 
     <div class="actions">
 
