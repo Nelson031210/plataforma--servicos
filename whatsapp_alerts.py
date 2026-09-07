@@ -1,8 +1,10 @@
 import json
 import os
 from datetime import datetime
+from math import asin, cos, radians, sin, sqrt
 from urllib import error as urlerror
 from urllib import request as urlrequest
+from urllib.parse import quote_plus
 
 from flask import abort, flash, redirect, request, session, url_for
 from sqlalchemy import inspect, text
@@ -38,24 +40,37 @@ class AlertaWhatsApp(db.Model):
 
 with app.app_context():
     with db.engine.begin() as conexao:
-        colunas = {
+        colunas_prestador = {
             coluna["name"]
             for coluna in inspect(conexao).get_columns("prestador")
         }
-        if "alertas_whatsapp" not in colunas:
+        if "alertas_whatsapp" not in colunas_prestador:
             conexao.execute(
                 text(
                     "ALTER TABLE prestador "
                     "ADD COLUMN alertas_whatsapp BOOLEAN NOT NULL DEFAULT FALSE"
                 )
             )
-        if "alcance_alerta" not in colunas:
+        if "alcance_alerta" not in colunas_prestador:
             conexao.execute(
                 text(
                     "ALTER TABLE prestador "
                     "ADD COLUMN alcance_alerta VARCHAR(20) NOT NULL DEFAULT 'cidade'"
                 )
             )
+        if "latitude" not in colunas_prestador:
+            conexao.execute(text("ALTER TABLE prestador ADD COLUMN latitude FLOAT"))
+        if "longitude" not in colunas_prestador:
+            conexao.execute(text("ALTER TABLE prestador ADD COLUMN longitude FLOAT"))
+
+        colunas_pedido = {
+            coluna["name"]
+            for coluna in inspect(conexao).get_columns("pedido")
+        }
+        if "latitude" not in colunas_pedido:
+            conexao.execute(text("ALTER TABLE pedido ADD COLUMN latitude FLOAT"))
+        if "longitude" not in colunas_pedido:
+            conexao.execute(text("ALTER TABLE pedido ADD COLUMN longitude FLOAT"))
 
     if not hasattr(Prestador, "alertas_whatsapp"):
         Prestador.alertas_whatsapp = db.Column(
@@ -71,6 +86,14 @@ with app.app_context():
             default="cidade",
             server_default="cidade",
         )
+    if not hasattr(Prestador, "latitude"):
+        Prestador.latitude = db.Column(db.Float, nullable=True)
+    if not hasattr(Prestador, "longitude"):
+        Prestador.longitude = db.Column(db.Float, nullable=True)
+    if not hasattr(Pedido, "latitude"):
+        Pedido.latitude = db.Column(db.Float, nullable=True)
+    if not hasattr(Pedido, "longitude"):
+        Pedido.longitude = db.Column(db.Float, nullable=True)
 
     db.create_all()
 
@@ -200,20 +223,91 @@ def enviar_template_whatsapp(prestador, pedido):
         return False, f"erro_envio: {type(exc).__name__}: {str(exc)[:700]}"
 
 
+COORDENADAS_CACHE = {}
+
+
+def buscar_coordenadas(cidade, uf):
+    chave = (
+        legacy.normalizar_texto(cidade),
+        legacy.uf_valida(uf),
+    )
+    if chave in COORDENADAS_CACHE:
+        return COORDENADAS_CACHE[chave]
+
+    consulta = quote_plus(f"{cidade}, {uf}, Brasil")
+    endpoint = (
+        "https://nominatim.openstreetmap.org/search"
+        f"?format=json&limit=1&countrycodes=br&q={consulta}"
+    )
+    requisicao = urlrequest.Request(
+        endpoint,
+        headers={"User-Agent": "ConectaServicos/1.0"},
+    )
+    try:
+        with urlrequest.urlopen(requisicao, timeout=5) as resposta:
+            resultados = json.loads(resposta.read().decode("utf-8"))
+        coordenadas = (
+            (float(resultados[0]["lat"]), float(resultados[0]["lon"]))
+            if resultados
+            else (None, None)
+        )
+    except Exception:
+        coordenadas = (None, None)
+
+    COORDENADAS_CACHE[chave] = coordenadas
+    return coordenadas
+
+
+def garantir_coordenadas(registro):
+    if registro.latitude is None or registro.longitude is None:
+        latitude, longitude = buscar_coordenadas(registro.cidade, registro.uf)
+        registro.latitude = latitude
+        registro.longitude = longitude
+    return registro.latitude, registro.longitude
+
+
+def distancia_km(origem, destino):
+    lat1, lon1 = origem
+    lat2, lon2 = destino
+    if None in (lat1, lon1, lat2, lon2):
+        return None
+
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = (
+        sin(dlat / 2) ** 2
+        + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    )
+    return 6371.0 * 2 * asin(sqrt(a))
+
+
 def prestador_deve_receber(prestador, pedido):
     if not prestador.aprovado or not bool(prestador.alertas_whatsapp):
         return False
     if not legacy.categoria_compativel(pedido.servico, prestador.categoria):
         return False
-    if legacy.uf_valida(prestador.uf) != legacy.uf_valida(pedido.uf):
-        return False
 
+    mesma_uf = legacy.uf_valida(prestador.uf) == legacy.uf_valida(pedido.uf)
     mesma_cidade = (
-        legacy.normalizar_texto(prestador.cidade)
+        mesma_uf
+        and legacy.normalizar_texto(prestador.cidade)
         == legacy.normalizar_texto(pedido.cidade)
     )
+    if mesma_cidade:
+        return True
+
     alcance = (prestador.alcance_alerta or "cidade").strip().lower()
-    return mesma_cidade or alcance == "estado"
+    if alcance == "estado":
+        return mesma_uf
+    if alcance not in ("raio_50", "raio_100"):
+        return False
+
+    distancia = distancia_km(
+        garantir_coordenadas(prestador),
+        garantir_coordenadas(pedido),
+    )
+    limite = 50 if alcance == "raio_50" else 100
+    return distancia is not None and distancia <= limite
 
 
 def disparar_alertas_para_pedido(pedido):
@@ -268,6 +362,9 @@ def quero_servico_com_alertas():
         elif dados["uf"] not in UFS:
             flash("Selecione um Estado (UF) válido.", "error")
         else:
+            dados["latitude"], dados["longitude"] = buscar_coordenadas(
+                dados["cidade"], dados["uf"]
+            )
             pedido = Pedido(**dados)
             db.session.add(pedido)
             db.session.commit()
@@ -309,7 +406,7 @@ def sou_prestador_com_alertas():
 
         receber_alertas = request.form.get("alertas_whatsapp") == "sim"
         alcance = (request.form.get("alcance_alerta") or "cidade").strip().lower()
-        if alcance not in ("cidade", "estado"):
+        if alcance not in ("cidade", "raio_50", "raio_100", "estado"):
             alcance = "cidade"
 
         if any(not dados[k] for k in obrigatorios):
@@ -321,6 +418,9 @@ def sou_prestador_com_alertas():
         else:
             dados["logo_data"] = logo_data
             dados["alertas_whatsapp"] = receber_alertas
+            dados["latitude"], dados["longitude"] = buscar_coordenadas(
+                dados["cidade"], dados["uf"]
+            )
             dados["alcance_alerta"] = alcance
             db.session.add(Prestador(**dados))
             db.session.commit()
@@ -349,8 +449,10 @@ def sou_prestador_com_alertas():
     <label for="alertas_whatsapp">Quero receber pelo WhatsApp avisos de clientes procurando meu tipo de serviço.</label></div>
     <label for="alcance_alerta">Onde quero receber oportunidades</label>
     <select id="alcance_alerta" name="alcance_alerta">
-    <option value="cidade">Somente na minha cidade</option>
-    <option value="estado">Minha cidade e outras cidades do meu estado</option></select>
+    <option value="cidade">Somente minha cidade</option>
+    <option value="raio_50">Minha cidade e região em um raio de 50 km</option>
+    <option value="raio_100">Minha cidade e região em um raio de 100 km</option>
+    <option value="estado">Todo o Estado</option></select>
     <p class="file-help">Você poderá alterar essa preferência depois. O WhatsApp será usado apenas para alertas do Conecta Serviços.</p>
     </div>
     <div class="topgap"><button class="btn">Criar perfil gratuito</button></div>
@@ -374,7 +476,9 @@ def preferencias_alertas():
     if request.method == "POST":
         prestador.alertas_whatsapp = request.form.get("alertas_whatsapp") == "sim"
         alcance = (request.form.get("alcance_alerta") or "cidade").strip().lower()
-        prestador.alcance_alerta = alcance if alcance in ("cidade", "estado") else "cidade"
+        opcoes_validas = ("cidade", "raio_50", "raio_100", "estado")
+        prestador.alcance_alerta = alcance if alcance in opcoes_validas else "cidade"
+        garantir_coordenadas(prestador)
         db.session.commit()
         flash("Preferências de alertas atualizadas.")
         return redirect(url_for("preferencias_alertas"))
@@ -391,7 +495,9 @@ def preferencias_alertas():
     <label for="alcance_alerta">Área dos alertas</label>
     <select id="alcance_alerta" name="alcance_alerta">
     <option value="cidade" {% if prestador.alcance_alerta == 'cidade' %}selected{% endif %}>Somente minha cidade</option>
-    <option value="estado" {% if prestador.alcance_alerta == 'estado' %}selected{% endif %}>Minha cidade e outras cidades do meu estado</option></select>
+    <option value="raio_50" {% if prestador.alcance_alerta == 'raio_50' %}selected{% endif %}>Minha cidade e região em um raio de 50 km</option>
+    <option value="raio_100" {% if prestador.alcance_alerta == 'raio_100' %}selected{% endif %}>Minha cidade e região em um raio de 100 km</option>
+    <option value="estado" {% if prestador.alcance_alerta == 'estado' %}selected{% endif %}>Todo o Estado</option></select>
     <p class="file-help">Status técnico do envio: {% if whatsapp_ativo %}<span class="status-pill">Integração configurada</span>{% else %}<span class="status-pill">Integração aguardando credenciais da Meta</span>{% endif %}</p>
     <div class="topgap"><button class="btn">Salvar preferências</button></div>
     </form></div>
