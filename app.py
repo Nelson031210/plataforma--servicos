@@ -1202,10 +1202,18 @@ def quero_servico():
                 "uf",
                 "telefone",
                 "email",
-                "servico",
                 "descricao",
             ]
         }
+
+        # O banco existente usa a coluna "servico". O formulário expõe
+        # "categoria", conforme a linguagem da plataforma, sem exigir uma
+        # migração destrutiva nem alterar pedidos já cadastrados.
+        dados["servico"] = (
+            request.form.get("categoria")
+            or request.form.get("servico")
+            or ""
+        ).strip()
 
         obrig = [
             "nome",
@@ -1270,6 +1278,7 @@ def quero_servico():
     </label>
 
     <input
+    autocomplete="name"
     name="nome"
     required
     >
@@ -1302,6 +1311,7 @@ def quero_servico():
     </label>
 
     <input
+    autocomplete="address-level2"
     name="cidade"
     required
     >
@@ -1311,6 +1321,8 @@ def quero_servico():
     </label>
 
     <input
+    autocomplete="tel"
+    inputmode="tel"
     name="telefone"
     required
     >
@@ -1320,16 +1332,17 @@ def quero_servico():
     </label>
 
     <input
+    autocomplete="email"
     type="email"
     name="email"
     >
 
     <label>
-    Qual serviço precisa? *
+    Categoria do serviço *
     </label>
 
     <input
-    name="servico"
+    name="categoria"
     placeholder="Ex.: eletricista, jardinagem, pintura"
     required
     >
