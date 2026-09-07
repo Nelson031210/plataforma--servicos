@@ -1,7 +1,8 @@
 import sys
 import legacy_app as legacy
 
-# Mantém compatibilidade com o módulo de extensão existente.
+# Mantém compatibilidade com os módulos de extensão existentes.
 sys.modules["app"] = legacy
 
-from logo_feature import app  # noqa: E402,F401
+import logo_feature  # noqa: E402,F401
+from whatsapp_alerts import app  # noqa: E402,F401
