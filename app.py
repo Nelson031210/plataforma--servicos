@@ -1,5 +1,6 @@
 import os
 import hmac
+import unicodedata
 from datetime import datetime
 
 from flask import (
@@ -226,6 +227,76 @@ def whatsapp_url(telefone):
         return f"https://wa.me/{numeros}"
 
     return None
+
+
+def normalizar_texto(valor):
+
+    texto_normalizado = unicodedata.normalize(
+        "NFKD",
+        valor or "",
+    )
+
+    sem_acentos = "".join(
+        caractere
+        for caractere in texto_normalizado
+        if not unicodedata.combining(caractere)
+    ).casefold()
+
+    somente_palavras = "".join(
+        caractere
+        if caractere.isalnum()
+        else " "
+        for caractere in sem_acentos
+    )
+
+    return " ".join(
+        somente_palavras.split()
+    )
+
+
+def categoria_compativel(servico, categoria):
+
+    servico_normalizado = normalizar_texto(servico)
+    categoria_normalizada = normalizar_texto(categoria)
+
+    if not servico_normalizado or not categoria_normalizada:
+        return False
+
+    return (
+        servico_normalizado == categoria_normalizada
+        or servico_normalizado in categoria_normalizada
+        or categoria_normalizada in servico_normalizado
+    )
+
+
+def encontrar_prestadores_compativeis(pedido, prestadores):
+
+    mesma_cidade = []
+    mesmo_estado = []
+
+    pedido_uf = normalizar_texto(pedido.uf)
+    pedido_cidade = normalizar_texto(pedido.cidade)
+
+    for prestador in prestadores:
+
+        if not categoria_compativel(
+            pedido.servico,
+            prestador.categoria,
+        ):
+            continue
+
+        if normalizar_texto(prestador.uf) != pedido_uf:
+            continue
+
+        if normalizar_texto(prestador.cidade) == pedido_cidade:
+            mesma_cidade.append(prestador)
+        else:
+            mesmo_estado.append(prestador)
+
+    return {
+        "mesma_cidade": mesma_cidade,
+        "mesmo_estado": mesmo_estado,
+    }
 
 
 BASE = """
@@ -1687,6 +1758,20 @@ def admin():
         .all()
     )
 
+    prestadores_aprovados = [
+        p
+        for p in prest
+        if p.aprovado
+    ]
+
+    correspondencias = {
+        x.id: encontrar_prestadores_compativeis(
+            x,
+            prestadores_aprovados,
+        )
+        for x in ped
+    }
+
     body = """
 
     <div
@@ -1859,6 +1944,90 @@ def admin():
     {{ x.descricao }}
     </p>
 
+    {% set encontrados = correspondencias[x.id] %}
+
+    <div class="card">
+
+    <strong>
+    Prestadores compatíveis na cidade
+    </strong>
+
+    {% for p in encontrados.mesma_cidade %}
+
+    <div class="item">
+
+    {{ p.nome }} — {{ p.categoria }} —
+    {{ p.cidade }}/{{ p.uf }}
+
+    <div class="actions">
+
+    {% set wpp = whatsapp_url(p.telefone) %}
+
+    {% if wpp %}
+
+    <a
+    class="btn whatsapp"
+    href="{{ wpp }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    >
+    Chamar no WhatsApp
+    </a>
+
+    {% endif %}
+
+    </div>
+
+    </div>
+
+    {% else %}
+
+    <p class="muted">
+    Nenhum prestador compatível nesta cidade.
+    </p>
+
+    {% endfor %}
+
+    {% if encontrados.mesmo_estado %}
+
+    <strong>
+    Alternativas na mesma UF
+    </strong>
+
+    {% for p in encontrados.mesmo_estado %}
+
+    <div class="item">
+
+    {{ p.nome }} — {{ p.categoria }} —
+    {{ p.cidade }}/{{ p.uf }}
+
+    <div class="actions">
+
+    {% set wpp = whatsapp_url(p.telefone) %}
+
+    {% if wpp %}
+
+    <a
+    class="btn whatsapp"
+    href="{{ wpp }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    >
+    Chamar no WhatsApp
+    </a>
+
+    {% endif %}
+
+    </div>
+
+    </div>
+
+    {% endfor %}
+
+    {% endif %}
+
+    </div>
+
     <div class="actions">
 
     <form
@@ -1914,6 +2083,8 @@ def admin():
         body,
         prest=prest,
         ped=ped,
+        correspondencias=correspondencias,
+        whatsapp_url=whatsapp_url,
     )
 
 
