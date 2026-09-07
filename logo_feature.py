@@ -1,6 +1,6 @@
 import base64
 
-from flask import abort, flash, redirect, render_template_string, request, url_for
+from flask import abort, flash, redirect, request, url_for
 from sqlalchemy import inspect, or_, text
 
 import app as legacy
@@ -35,39 +35,165 @@ with app.app_context():
 
 
 LOGO_CSS = """
+.provider-list{
+    display:grid;
+    gap:14px;
+    margin-top:18px;
+}
+.provider-card{
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:18px;
+    box-shadow:0 5px 16px rgba(15,23,42,.04);
+}
 .provider-row{
     display:flex;
     gap:16px;
     align-items:flex-start;
 }
-.provider-logo{
-    width:92px;
-    height:92px;
-    object-fit:contain;
-    border:1px solid var(--border);
-    border-radius:12px;
-    background:#fff;
-    padding:6px;
-    flex:0 0 auto;
+.provider-main{
+    min-width:0;
+    flex:1;
 }
-.profile-logo{
-    width:min(260px,100%);
-    max-height:180px;
-    object-fit:contain;
+.provider-main h3{
+    margin:2px 0 8px;
+    font-size:21px;
+}
+.provider-logo,
+.provider-logo-placeholder{
+    width:96px;
+    height:96px;
     border:1px solid var(--border);
     border-radius:14px;
     background:#fff;
+    flex:0 0 auto;
+}
+.provider-logo{
+    object-fit:contain;
+    padding:6px;
+}
+.provider-logo-placeholder{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:30px;
+    font-weight:800;
+    color:var(--brand);
+    background:#eff6ff;
+}
+.provider-meta{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
+}
+.provider-description{
+    line-height:1.55;
+    margin:12px 0;
+}
+.profile-card{
+    overflow:hidden;
+}
+.profile-head{
+    display:flex;
+    justify-content:space-between;
+    gap:24px;
+    align-items:flex-start;
+    flex-wrap:wrap;
+}
+.profile-logo,
+.profile-logo-placeholder{
+    width:min(260px,100%);
+    min-width:180px;
+    height:170px;
+    border:1px solid var(--border);
+    border-radius:16px;
+    background:#fff;
+}
+.profile-logo{
+    object-fit:contain;
     padding:8px;
+}
+.profile-logo-placeholder{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:54px;
+    font-weight:800;
+    color:var(--brand);
+    background:#eff6ff;
+}
+.profile-section{
+    margin-top:24px;
+    padding-top:20px;
+    border-top:1px solid var(--border);
+}
+.profile-section h2{
+    margin-top:0;
+}
+.profile-description{
+    white-space:pre-line;
+    line-height:1.65;
+}
+.free-banner{
+    background:#ecfdf5;
+    border:1px solid #bbf7d0;
+    border-radius:14px;
+    padding:14px 16px;
+    margin:0 0 18px;
+    color:#166534;
+}
+.free-banner strong{
+    display:block;
+    font-size:16px;
+    margin-bottom:3px;
 }
 .file-help{
     margin-top:6px;
     font-size:13px;
     color:var(--muted);
 }
+.form-intro{
+    margin-top:-4px;
+    margin-bottom:20px;
+}
+.contact-box{
+    background:#f8fafc;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:14px 16px;
+}
+.contact-box p{
+    margin:6px 0;
+}
 @media(max-width:520px){
-    .provider-logo{
-        width:76px;
-        height:76px;
+    .provider-card{
+        padding:15px;
+    }
+    .provider-row{
+        gap:12px;
+    }
+    .provider-logo,
+    .provider-logo-placeholder{
+        width:72px;
+        height:72px;
+    }
+    .provider-logo-placeholder{
+        font-size:24px;
+    }
+    .provider-main h3{
+        font-size:18px;
+    }
+    .provider-card .actions .btn,
+    .profile-card .actions .btn{
+        width:100%;
+        text-align:center;
+    }
+    .profile-logo,
+    .profile-logo-placeholder{
+        width:100%;
+        min-width:0;
     }
 }
 """
@@ -93,6 +219,11 @@ def imagem_para_data_url(arquivo):
 
     codificado = base64.b64encode(dados).decode("ascii")
     return f"data:{mime};base64,{codificado}", None
+
+
+def inicial_prestador(nome):
+    nome = (nome or "").strip()
+    return nome[0].upper() if nome else "P"
 
 
 def sou_prestador_com_logo():
@@ -140,12 +271,20 @@ def sou_prestador_com_logo():
 
     body = """
     <h1>Cadastro de prestador</h1>
+    <p class="muted form-intro">
+    Crie seu perfil profissional para ser encontrado por clientes da sua região.
+    </p>
+
+    <div class="free-banner">
+    <strong>Cadastro gratuito nesta fase</strong>
+    Não há cobrança para criar seu perfil e divulgar seus serviços na plataforma.
+    </div>
 
     <div class="card">
     <form method="post" enctype="multipart/form-data">
 
     <label>Nome ou empresa *</label>
-    <input name="nome" required>
+    <input name="nome" placeholder="Ex.: João Silva ou JS Elétrica" required>
 
     <label>Estado (UF) *</label>
     <select name="uf" required>
@@ -156,23 +295,23 @@ def sou_prestador_com_logo():
     </select>
 
     <label>Cidade *</label>
-    <input name="cidade" required>
+    <input name="cidade" placeholder="Ex.: Londrina" required>
 
     <label>Telefone/WhatsApp *</label>
-    <input name="telefone" type="tel" inputmode="tel" autocomplete="tel" required>
+    <input name="telefone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(43) 99999-9999" required>
 
     <label>E-mail</label>
-    <input type="email" name="email" autocomplete="email">
+    <input type="email" name="email" autocomplete="email" placeholder="seuemail@exemplo.com">
 
-    <label>Categoria *</label>
+    <label>Serviço principal / categoria *</label>
     <input
         name="categoria"
-        placeholder="Ex.: encanador, pintor, jardinagem"
+        placeholder="Ex.: eletricista, pintor, jardinagem"
         required
     >
 
     <label>Apresente seus serviços *</label>
-    <textarea name="descricao" required></textarea>
+    <textarea name="descricao" placeholder="Conte o que você faz, sua experiência, tipos de serviço e regiões que atende." required></textarea>
 
     <label>Logomarca ou cartão de visita</label>
     <input
@@ -181,11 +320,11 @@ def sou_prestador_com_logo():
         accept="image/jpeg,image/png,image/webp"
     >
     <div class="file-help">
-    Opcional. Envie JPG, PNG ou WEBP de até 1,5 MB. A imagem aparecerá no seu perfil e na busca.
+    Opcional. Envie JPG, PNG ou WEBP de até 1,5 MB. A imagem aparecerá na busca e no seu perfil profissional.
     </div>
 
     <div class="topgap">
-    <button class="btn">Cadastrar</button>
+    <button class="btn">Criar perfil gratuito</button>
     </div>
 
     </form>
@@ -265,36 +404,40 @@ def prestadores_com_logo():
     </p>
     {% endif %}
 
-    <div class="card topgap">
+    <div class="provider-list">
     {% if itens %}
     {% for p in itens %}
-    <div class="item">
+    <article class="provider-card">
     <div class="provider-row">
     {% if p.logo_data %}
     <img class="provider-logo" src="{{ p.logo_data }}" alt="Logomarca ou cartão de {{ p.nome }}">
+    {% else %}
+    <div class="provider-logo-placeholder" aria-hidden="true">{{ inicial_prestador(p.nome) }}</div>
     {% endif %}
-    <div>
+    <div class="provider-main">
     <h3>{{ p.nome }}</h3>
-    <div>
+    <div class="provider-meta">
     <span class="tag">{{ p.categoria }}</span>
-    <span class="muted">{{ formatar_localizacao(p.cidade, p.uf) }}</span>
+    <span class="muted">📍 {{ formatar_localizacao(p.cidade, p.uf) }}</span>
     </div>
-    <p>{{ p.descricao }}</p>
+    <p class="provider-description">{{ p.descricao }}</p>
     <div class="actions">
-    <a class="btn secondary" href="{{ url_for('perfil_prestador', pid=p.id) }}">Ver perfil</a>
+    <a class="btn secondary" href="{{ url_for('perfil_prestador', pid=p.id) }}">Ver perfil profissional</a>
     {% set wpp = whatsapp_url(p.telefone) %}
     {% if wpp %}
-    <a class="btn whatsapp" href="{{ wpp }}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+    <a class="btn whatsapp" href="{{ wpp }}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>
     {% endif %}
     </div>
     </div>
     </div>
-    </div>
+    </article>
     {% endfor %}
     {% else %}
+    <div class="card">
     <p class="muted">
     Nenhum prestador encontrado com esses filtros. Tente outro serviço ou uma cidade próxima.
     </p>
+    </div>
     {% endif %}
     </div>
     """
@@ -308,6 +451,7 @@ def prestadores_com_logo():
         cidade=cidade,
         ufs=UFS,
         whatsapp_url=legacy.whatsapp_url,
+        inicial_prestador=inicial_prestador,
     )
 
 
@@ -317,34 +461,42 @@ def perfil_prestador_com_logo(pid):
         abort(404)
 
     body = """
-    <div class="card">
+    <div class="card profile-card">
     <div class="profile-head">
     <div>
     <span class="tag">{{ p.categoria }}</span>
     <h1>{{ p.nome }}</h1>
-    <p class="muted">{{ formatar_localizacao(p.cidade, p.uf) }}</p>
+    <p class="muted">📍 {{ formatar_localizacao(p.cidade, p.uf) }}</p>
     </div>
     {% if p.logo_data %}
     <img class="profile-logo" src="{{ p.logo_data }}" alt="Logomarca ou cartão de {{ p.nome }}">
+    {% else %}
+    <div class="profile-logo-placeholder" aria-hidden="true">{{ inicial_prestador(p.nome) }}</div>
     {% endif %}
     </div>
 
+    <section class="profile-section">
     <h2>Sobre os serviços</h2>
     <p class="profile-description">{{ p.descricao }}</p>
+    </section>
 
+    <section class="profile-section">
     <h2>Contato</h2>
+    <div class="contact-box">
     <p><strong>Telefone/WhatsApp:</strong> {{ p.telefone }}</p>
     {% if p.email %}
     <p><strong>E-mail:</strong> {{ p.email }}</p>
     {% endif %}
+    </div>
 
-    <div class="actions">
+    <div class="actions topgap">
     {% set wpp = whatsapp_url(p.telefone) %}
     {% if wpp %}
     <a class="btn whatsapp" href="{{ wpp }}" target="_blank" rel="noopener noreferrer">Conversar no WhatsApp</a>
     {% endif %}
     <a class="btn secondary" href="{{ url_for('prestadores') }}">Voltar para prestadores</a>
     </div>
+    </section>
     </div>
     """
 
@@ -353,6 +505,7 @@ def perfil_prestador_com_logo(pid):
         body,
         p=p,
         whatsapp_url=legacy.whatsapp_url,
+        inicial_prestador=inicial_prestador,
     )
 
 
