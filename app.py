@@ -2180,7 +2180,12 @@ def excluir_pedido(pid):
 def health():
 
     return {
-        "status": "ok"
+        "status": "ok",
+        "versao": "matching-v1",
+        "commit": os.getenv(
+            "RENDER_GIT_COMMIT",
+            "local",
+        ),
     }
 
 
