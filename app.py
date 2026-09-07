@@ -177,6 +177,39 @@ class Pedido(db.Model):
     )
 
 
+class Interesse(db.Model):
+    id = db.Column(
+        db.Integer,
+        primary_key=True,
+    )
+
+    pedido_id = db.Column(
+        db.Integer,
+        db.ForeignKey("pedido.id"),
+        nullable=False,
+    )
+
+    prestador_id = db.Column(
+        db.Integer,
+        db.ForeignKey("prestador.id"),
+        nullable=False,
+    )
+
+    criado_em = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "pedido_id",
+            "prestador_id",
+            name="uq_interesse_pedido_prestador",
+        ),
+    )
+
+
 def atualizar_estrutura_banco():
     db.create_all()
 
@@ -212,13 +245,28 @@ with app.app_context():
     atualizar_estrutura_banco()
 
 
-def whatsapp_url(telefone):
+def numeros_telefone(telefone):
 
-    numeros = "".join(
+    return "".join(
         ch
         for ch in (telefone or "")
         if ch.isdigit()
     )
+
+
+def chave_telefone(telefone):
+
+    numeros = numeros_telefone(telefone)
+
+    if len(numeros) in (12, 13) and numeros.startswith("55"):
+        return numeros[2:]
+
+    return numeros
+
+
+def whatsapp_url(telefone):
+
+    numeros = numeros_telefone(telefone)
 
     if len(numeros) in (10, 11):
         numeros = "55" + numeros
@@ -409,6 +457,17 @@ font-size:20px
 color:#fff;
 text-decoration:none;
 margin-left:14px
+}
+
+.navlinks{
+display:flex;
+gap:14px;
+justify-content:flex-end;
+flex-wrap:wrap
+}
+
+.navlinks a{
+margin-left:0
 }
 
 .hero{
@@ -621,11 +680,13 @@ text-align:center
 }
 
 .nav .wrap{
-align-items:flex-start
+align-items:flex-start;
+flex-direction:column
 }
 
 .navlinks{
-font-size:14px
+font-size:14px;
+justify-content:flex-start
 }
 
 .profile-head{
@@ -664,6 +725,10 @@ Pedir serviço
 
 <a href="{{ url_for('sou_prestador') }}">
 Sou prestador
+</a>
+
+<a href="{{ url_for('area_prestador') }}">
+Área do prestador
 </a>
 
 </div>
@@ -786,6 +851,13 @@ def home():
     href="{{ url_for('sou_prestador') }}"
     >
     Quero prestar serviços
+    </a>
+
+    <a
+    class="btn secondary"
+    href="{{ url_for('area_prestador') }}"
+    >
+    Área do prestador
     </a>
 
     </div>
@@ -1654,6 +1726,349 @@ def sou_prestador():
     )
 
 
+@app.route(
+    "/area-prestador",
+    methods=[
+        "GET",
+        "POST",
+    ],
+)
+def area_prestador():
+
+    if request.method == "POST":
+
+        telefone_informado = chave_telefone(
+            request.form.get("telefone")
+        )
+
+        encontrados = [
+            p
+            for p in Prestador.query.filter_by(
+                aprovado=True
+            ).all()
+            if chave_telefone(p.telefone) == telefone_informado
+        ]
+
+        if not telefone_informado:
+
+            flash(
+                "Informe o telefone/WhatsApp cadastrado.",
+                "error",
+            )
+
+        elif len(encontrados) == 1:
+
+            session["prestador_id"] = encontrados[0].id
+
+            return redirect(
+                url_for("area_prestador")
+            )
+
+        elif len(encontrados) > 1:
+
+            flash(
+                "Há mais de um cadastro com este telefone. Procure o administrador para corrigir a duplicidade.",
+                "error",
+            )
+
+        else:
+
+            flash(
+                "Prestador aprovado não encontrado para este WhatsApp.",
+                "error",
+            )
+
+    prestador_id = session.get(
+        "prestador_id"
+    )
+
+    if not prestador_id:
+
+        body = """
+
+        <h1>Área do prestador</h1>
+
+        <p class="muted">
+        Entre com o mesmo telefone/WhatsApp usado no cadastro.
+        </p>
+
+        <div class="card">
+
+        <form method="post">
+
+        <label for="telefone-area">
+        Telefone/WhatsApp
+        </label>
+
+        <input
+        id="telefone-area"
+        name="telefone"
+        type="tel"
+        inputmode="tel"
+        autocomplete="tel"
+        placeholder="Ex.: (43) 99999-9999"
+        required
+        >
+
+        <div class="topgap">
+
+        <button class="btn">
+        Entrar
+        </button>
+
+        </div>
+
+        </form>
+
+        </div>
+
+        """
+
+        return page(
+            "Área do prestador",
+            body,
+        )
+
+    prestador = db.session.get(
+        Prestador,
+        prestador_id,
+    )
+
+    if not prestador or not prestador.aprovado:
+
+        session.pop(
+            "prestador_id",
+            None,
+        )
+
+        flash(
+            "Seu acesso não está disponível. Procure o administrador.",
+            "error",
+        )
+
+        return redirect(
+            url_for("area_prestador")
+        )
+
+    pedidos_abertos = (
+        Pedido.query
+        .filter(
+            Pedido.status != "Concluído"
+        )
+        .order_by(
+            Pedido.criado_em.desc()
+        )
+        .all()
+    )
+
+    locais = []
+    outras_cidades = []
+    prestador_uf = uf_valida(
+        prestador.uf
+    )
+    prestador_cidade = normalizar_texto(
+        prestador.cidade
+    )
+
+    if prestador_uf:
+
+        for pedido in pedidos_abertos:
+
+            if not categoria_compativel(
+                pedido.servico,
+                prestador.categoria,
+            ):
+                continue
+
+            if uf_valida(pedido.uf) != prestador_uf:
+                continue
+
+            if normalizar_texto(pedido.cidade) == prestador_cidade:
+                locais.append(pedido)
+            else:
+                outras_cidades.append(pedido)
+
+    ids_interesses = {
+        interesse.pedido_id
+        for interesse in Interesse.query.filter_by(
+            prestador_id=prestador.id
+        ).all()
+    }
+
+    body = """
+
+    <div class="profile-head">
+
+    <div>
+    <h1>Olá, {{ prestador.nome }}</h1>
+    <p class="muted">
+    {{ prestador.categoria }} —
+    {{ formatar_localizacao(prestador.cidade, prestador.uf) }}
+    </p>
+    </div>
+
+    <a
+    class="btn secondary"
+    href="{{ url_for('sair_area_prestador') }}"
+    >
+    Sair
+    </a>
+
+    </div>
+
+    <h2>Oportunidades na sua cidade</h2>
+
+    <div class="grid">
+
+    {% for pedido in locais %}
+
+    {{ card_oportunidade(pedido, ids_interesses)|safe }}
+
+    {% else %}
+
+    <div class="card">
+    <p class="muted">
+    Nenhuma oportunidade compatível na sua cidade agora.
+    </p>
+    </div>
+
+    {% endfor %}
+
+    </div>
+
+    {% if outras_cidades %}
+
+    <h2 class="topgap">Outras oportunidades na sua UF</h2>
+
+    <div class="grid">
+
+    {% for pedido in outras_cidades %}
+
+    {{ card_oportunidade(pedido, ids_interesses)|safe }}
+
+    {% endfor %}
+
+    </div>
+
+    {% endif %}
+
+    """
+
+    def card_oportunidade(pedido, interesses):
+
+        return render_template_string(
+            """
+            <div class="card">
+            <span class="tag">{{ pedido.status }}</span>
+            <h3>{{ pedido.servico }}</h3>
+            <p><strong>Local:</strong>
+            {{ formatar_localizacao(pedido.cidade, pedido.uf) }}</p>
+            <p class="profile-description">{{ pedido.descricao }}</p>
+
+            {% if pedido.id in interesses %}
+            <span class="tag">Interesse enviado</span>
+            {% else %}
+            <form
+            method="post"
+            action="{{ url_for('registrar_interesse', pid=pedido.id) }}"
+            >
+            <button class="btn">Tenho interesse</button>
+            </form>
+            {% endif %}
+            </div>
+            """,
+            pedido=pedido,
+            interesses=interesses,
+        )
+
+    return page(
+        "Área do prestador",
+        body,
+        prestador=prestador,
+        locais=locais,
+        outras_cidades=outras_cidades,
+        ids_interesses=ids_interesses,
+        card_oportunidade=card_oportunidade,
+    )
+
+
+@app.get("/area-prestador/sair")
+def sair_area_prestador():
+
+    session.pop(
+        "prestador_id",
+        None,
+    )
+
+    return redirect(
+        url_for("area_prestador")
+    )
+
+
+@app.post(
+    "/area-prestador/oportunidade/<int:pid>/interesse"
+)
+def registrar_interesse(pid):
+
+    prestador_id = session.get(
+        "prestador_id"
+    )
+
+    prestador = (
+        db.session.get(
+            Prestador,
+            prestador_id,
+        )
+        if prestador_id
+        else None
+    )
+
+    if not prestador or not prestador.aprovado:
+        abort(403)
+
+    pedido = db.get_or_404(
+        Pedido,
+        pid,
+    )
+
+    compativel = (
+        pedido.status != "Concluído"
+        and categoria_compativel(
+            pedido.servico,
+            prestador.categoria,
+        )
+        and uf_valida(pedido.uf)
+        and uf_valida(pedido.uf) == uf_valida(prestador.uf)
+    )
+
+    if not compativel:
+        abort(403)
+
+    existente = Interesse.query.filter_by(
+        pedido_id=pedido.id,
+        prestador_id=prestador.id,
+    ).first()
+
+    if not existente:
+
+        db.session.add(
+            Interesse(
+                pedido_id=pedido.id,
+                prestador_id=prestador.id,
+            )
+        )
+
+        db.session.commit()
+
+        flash(
+            "Seu interesse foi registrado com sucesso."
+        )
+
+    return redirect(
+        url_for("area_prestador")
+    )
+
+
 def admin_ok():
     return (
         session.get("admin")
@@ -1793,6 +2208,28 @@ def admin():
         )
         for x in ped
     }
+
+    interessados = {
+        x.id: []
+        for x in ped
+    }
+
+    for interesse in Interesse.query.order_by(
+        Interesse.criado_em.desc()
+    ).all():
+
+        prestador_interessado = db.session.get(
+            Prestador,
+            interesse.prestador_id,
+        )
+
+        if (
+            prestador_interessado
+            and interesse.pedido_id in interessados
+        ):
+            interessados[interesse.pedido_id].append(
+                prestador_interessado
+            )
 
     body = """
 
@@ -2042,6 +2479,44 @@ def admin():
 
     </div>
 
+    <div class="card">
+
+    <strong>Prestadores que têm interesse</strong>
+
+    {% for p in interessados[x.id] %}
+
+    <div class="item">
+
+    {{ p.nome }} — {{ p.categoria }} —
+    {{ formatar_localizacao(p.cidade, p.uf) }}
+
+    {% set wpp = whatsapp_url(p.telefone) %}
+
+    {% if wpp %}
+
+    <div class="actions">
+    <a
+    class="btn whatsapp"
+    href="{{ wpp }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    >
+    Chamar no WhatsApp
+    </a>
+    </div>
+
+    {% endif %}
+
+    </div>
+
+    {% else %}
+
+    <p class="muted">Nenhum prestador interessado ainda.</p>
+
+    {% endfor %}
+
+    </div>
+
     <div class="actions">
 
     <form
@@ -2098,6 +2573,7 @@ def admin():
         prest=prest,
         ped=ped,
         correspondencias=correspondencias,
+        interessados=interessados,
         whatsapp_url=whatsapp_url,
     )
 
@@ -2136,6 +2612,10 @@ def excluir_prestador(pid):
         Prestador,
         pid,
     )
+
+    Interesse.query.filter_by(
+        prestador_id=p.id
+    ).delete()
 
     db.session.delete(p)
 
@@ -2180,6 +2660,10 @@ def excluir_pedido(pid):
         Pedido,
         pid,
     )
+
+    Interesse.query.filter_by(
+        pedido_id=x.id
+    ).delete()
 
     db.session.delete(x)
 
